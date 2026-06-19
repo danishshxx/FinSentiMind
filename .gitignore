@@ -1,0 +1,7 @@
+.aider*
+.env
+# Mengabaikan folder virtual environment Python
+.venv/
+venv/
+env/
+__pycache__/
