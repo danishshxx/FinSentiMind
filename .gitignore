@@ -136,4 +136,4 @@ __marimo__/
 # Aider AI files
 .aider*
 
-.vscode/
+.vscode/settings.json
