@@ -42,3 +42,24 @@ Project ini dirancang secara modular yang terbagi menjadi beberapa fase *core*:
 [ Berita Mentah ] ---> [ Web Scraper ] ---> [ NLP Preprocessing (Sastrawi) ] ---\
                                                                                    ---> [ Gabung Data ] ---> [ Model ML ] ---> [ FastAPI Endpoint ]
 [ Harga Saham ]   ---> [ yfinance ]    ---> [ Kalkulasi Indikator (Pandas) ] ---/
+
+## 📂 Struktur Direktori Project
+
+finsentimind/
+│
+├── app/                  # Kode untuk serving API (FastAPI)
+│   ├── __init__.py
+│   └── main.py
+│
+├── core/                 # Pipeline utama (Scraper, NLP, ML)
+│   ├── database.py       # Konfigurasi SQLAlchemy & Model Tabel
+│   ├── scraper.py        # Skrip BeautifulSoup untuk berita
+│   ├── processor.py      # Preprocessing NLP Sastrawi & Teknikal Pandas
+│   └── model_engine.py   # Training & Prediksi Scikit-Learn
+│
+├── data/                 # Folder lokal untuk menyimpan database/CSV
+│   └── database.db
+│
+├── pipeline.py           # Skrip utama untuk menjalankan seluruh pipeline (Main Executable)
+├── requirements.txt      # Daftar library yang dibutuhkan
+└── README.md
