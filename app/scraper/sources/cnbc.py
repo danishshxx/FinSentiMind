@@ -1,13 +1,23 @@
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup as bs
 
 def fetch_news_head(ticker: str):
-    url = f"https://www.cnbc.com/quotes/{ticker}"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    url = f"https://www.cnbcindonesia.com/search?query={ticker}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
     
-    news_headlines = []
-    for item in soup.select('.LatestNews-headline'):
-        news_headlines.append(item.get_text())
+    response = requests.get(url, headers=headers)
     
-    return news_headlines
+    soup = bs(response.content, 'html.parser')
+    
+    articles = soup.select('a strong.font-semibold')
+    
+    hasil_berita = []
+    for article in articles:
+        judul_berita = article.get_text(strip=True)
+        
+        if judul_berita:
+            hasil_berita.append(judul_berita)
+            
+    return hasil_berita    
