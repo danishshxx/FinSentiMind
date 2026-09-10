@@ -1,4 +1,4 @@
-# app/scraper/sources/cnbc.py
+# app/scraper/sources/kontan.py
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
@@ -9,23 +9,23 @@ from app.models.schemas import NewsArticle
 from app.scraper.base import BaseNewsScraper
 
 
-class CNBCScraper(BaseNewsScraper):
+class KontanScraper(BaseNewsScraper):
     """
-    Scraper for CNBC Indonesia search results.
+    Scraper for Kontan search results.
 
     Fetches news articles related to a given ticker symbol from
-    https://www.cnbcindonesia.com/search?query={ticker}
+    https://search.kontan.co.id/search/?search={ticker}
     """
 
-    BASE_URL = "https://www.cnbcindonesia.com"
-    SEARCH_URL = "https://www.cnbcindonesia.com/search?query={ticker}"
+    BASE_URL = "https://www.kontan.co.id"
+    SEARCH_URL = "https://search.kontan.co.id/search/?search={ticker}"
 
     def __init__(self, headers: dict | None = None, timeout: int = 10):
         super().__init__(headers=headers, timeout=timeout)
 
     def fetch_html(self, ticker: str) -> str:
         """
-        Fetch the HTML of CNBC Indonesia search results for a given ticker.
+        Fetch the HTML of Kontan search results for a given ticker.
 
         Args:
             ticker (str): The stock ticker or company name to search for.
@@ -39,7 +39,7 @@ class CNBCScraper(BaseNewsScraper):
             response.raise_for_status()
             return response.text
         except requests.exceptions.RequestException as e:
-            print(f"[CNBCScraper] Request failed for {url}: {e}")
+            print(f"[KontanScraper] Request failed for {url}: {e}")
             return ""
 
     def extract_articles(self, html: str) -> List[NewsArticle]:
@@ -59,18 +59,17 @@ class CNBCScraper(BaseNewsScraper):
         articles: List[NewsArticle] = []
         scraped_at = datetime.now()
 
-        # CNBC search results often use <article> tags or <a> with specific classes
+        # Kontan search results often have <div class="list-item"> or <article> or <h2><a>
         candidates = soup.find_all("article")
         if not candidates:
-            # Fallback: look for anchor tags with substantial text and a relevant href
+            # Fallback: look for anchors inside headings or with substantial text
             candidates = [
                 a for a in soup.find_all("a", href=True)
-                if a.get_text(strip=True) and len(a.get_text(strip=True)) > 20
+                if a.find_parent(["h1", "h2", "h3"]) or len(a.get_text(strip=True)) > 20
             ]
 
         for element in candidates:
             try:
-                # If element is an <article>, find the first <a> inside
                 if element.name == "article":
                     anchor = element.find("a", href=True)
                     if not anchor:
@@ -83,10 +82,8 @@ class CNBCScraper(BaseNewsScraper):
                 if not title or not href:
                     continue
 
-                # Build absolute URL
                 url = urljoin(self.BASE_URL, href)
 
-                # Extract date if available; fallback to now
                 published_at = self._extract_date(element)
                 if published_at is None:
                     published_at = scraped_at
@@ -96,7 +93,7 @@ class CNBCScraper(BaseNewsScraper):
                 article = NewsArticle(
                     title=title,
                     url=url,
-                    source="CNBC Indonesia",
+                    source="Kontan",
                     published_at=published_at,
                     scraped_at=scraped_at,
                     content_hash=content_hash,
@@ -104,7 +101,7 @@ class CNBCScraper(BaseNewsScraper):
                 articles.append(article)
 
             except Exception as e:
-                print(f"[CNBCScraper] Error parsing an article element: {e}")
+                print(f"[KontanScraper] Error parsing an article element: {e}")
                 continue
 
         return articles
@@ -112,10 +109,7 @@ class CNBCScraper(BaseNewsScraper):
     def _extract_date(self, element) -> datetime | None:
         """
         Attempt to extract a publication date from an HTML element.
-
-        Looks for common date containers near the article link.
         """
-        # Try to find a <time> tag or a tag with class containing 'date'
         date_tag = element.find("time") if element.name != "time" else element
         if date_tag:
             datetime_attr = date_tag.get("datetime")
@@ -125,7 +119,7 @@ class CNBCScraper(BaseNewsScraper):
                 except ValueError:
                     pass
 
-        # Fallback: look for a span or small tag with date-like text
+        # Look for elements with class containing 'date'
         date_candidates = element.find_all(["span", "small", "div"], class_=lambda c: c and "date" in c.lower())
         for tag in date_candidates:
             text = tag.get_text(strip=True)
@@ -134,7 +128,7 @@ class CNBCScraper(BaseNewsScraper):
                 if parsed:
                     return parsed
 
-        # If the element itself has date text
+        # Try parsing the whole text
         text = element.get_text(" ", strip=True)
         parsed = self._parse_date_text(text)
         return parsed
@@ -145,12 +139,10 @@ class CNBCScraper(BaseNewsScraper):
         """
         from dateutil import parser as date_parser
         try:
-            # dateutil handles many formats, but may be too lenient; we can try
             return date_parser.parse(text, fuzzy=True)
         except (ValueError, OverflowError):
             pass
 
-        # Manual fallback formats (if dateutil not installed)
         formats = [
             "%d %b %Y %H:%M",
             "%d %B %Y %H:%M",
