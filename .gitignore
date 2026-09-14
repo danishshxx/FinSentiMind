@@ -137,3 +137,29 @@ __marimo__/
 .aider*
 
 .vscode/settings.json
+
+# === FinSentiMind-specific ===
+
+# Debug & temporary artifacts
+cnbc_debug.html
+# debug_*.py
+# verify_feeds.py
+check_schema*.py
+# benchmark_sentiment.py
+
+# Telethon session files (credentials!)
+*.session
+*.session-journal
+
+# ML artifacts (future)
+ml/models/*.pkl
+ml/data/*.parquet
+ml/data/*.csv
+!ml/data/.gitkeep
+
+# Env variants
+.env.*
+!.env.example
+
+# Local test outputs
+test_output/

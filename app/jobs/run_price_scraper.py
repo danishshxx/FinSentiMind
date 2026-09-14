@@ -1,38 +1,57 @@
-from app.database.supabase_client import get_supabase_client
-from app.scraper.sources.yahoo import fetch_historical_price
+from typing import List
 
-def run_price_pipeline(ticker: str): 
-    supabase_client = get_supabase_client()
-    
-    print(f"Fetching historical price data for {ticker}...")
-    
-    df_harga = fetch_historical_price(ticker)
-    
-    df_reset = df_harga.reset_index()
-    
-    rows_to_insert = []
-    
-    for index, row in df_reset.iterrows():
-        tanggal_str =  row['Date'].strftime('%Y-%m-%d')
-        
-        data_saham = {
-            "tanggal": tanggal_str,
-            "kode_saham": ticker,
-            "harga_buka": float(row['Open']),      # Tambahan
-            "harga_tertinggi": float(row['High']),  # Tambahan
-            "harga_terendah": float(row['Low']),   # Tambahan
-            "harga_tutup": float(row['Close']),
-            "volume": int(row['Volume'])
+from app.database.supabase_client import get_supabase_client
+from app.models.schemas import StockPrice
+from app.scraper.sources.yahoo import YahooFinanceScraper
+
+
+def run_price_pipeline(ticker: str, period: str = "1mo") -> None:
+    """
+    Orchestrates the OHLCV price ingestion pipeline for a given ticker.
+
+    Steps:
+        1. Fetch historical data via YahooFinanceScraper.
+        2. Convert StockPrice models into dictionaries.
+        3. Upsert records into Supabase 'harga_saham' table, relying on the
+           UNIQUE(kode_saham, tanggal) constraint to prevent duplicates.
+
+    Args:
+        ticker (str): Yahoo Finance ticker symbol (e.g., 'BBCA.JK').
+        period (str): Historical window to fetch. Defaults to '1mo'.
+
+    Returns:
+        None
+    """
+    scraper = YahooFinanceScraper()
+    prices: List[StockPrice] = scraper.fetch_historical_data(ticker=ticker, period=period)
+
+    if not prices:
+        print(f"[PricePipeline] No price data fetched for {ticker}.")
+        return
+
+    records = [
+        {
+            "kode_saham": price.kode_saham,
+            "tanggal": price.tanggal.isoformat(),
+            "harga_buka": price.harga_buka,
+            "harga_tertinggi": price.harga_tertinggi,
+            "harga_terendah": price.harga_terendah,
+            "harga_tutup": price.harga_tutup,
+            "volume": price.volume,
         }
-        
-        rows_to_insert.append(data_saham)
-        
+        for price in prices
+    ]
+
+    supabase = get_supabase_client()
     try:
-        response = supabase_client.table("harga_saham").insert(rows_to_insert).execute()
-        print(f"Successfully inserted {len(rows_to_insert)} rows for {ticker}.")
+        response = supabase.table("harga_saham").upsert(records).execute()
+        inserted = len(response.data) if response and response.data else 0
+        print(f"[PricePipeline] Ticker: {ticker}")
+        print(f"  - Records fetched: {len(records)}")
+        print(f"  - Records upserted: {inserted}")
     except Exception as e:
-        print(f"Failed to insert data for {ticker}. Error: {e}")
-        
+        print(f"[PricePipeline] Failed to upsert data for {ticker}: {e}")
+
+
 if __name__ == "__main__":
-    # Kita tes pakai saham BCA
-    run_price_pipeline("BBCA.JK")
+    run_price_pipeline("BBCA.JK", period="1mo")
