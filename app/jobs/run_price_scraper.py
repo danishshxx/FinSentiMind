@@ -44,7 +44,11 @@ def run_price_pipeline(ticker: str, period: str = "1mo") -> None:
 
     supabase = get_supabase_client()
     try:
-        response = supabase.table("harga_saham").upsert(records).execute()
+        response = (
+            supabase.table("harga_saham")
+            .upsert(records, on_conflict="kode_saham,tanggal")
+            .execute() 
+        )
         inserted = len(response.data) if response and response.data else 0
         print(f"[PricePipeline] Ticker: {ticker}")
         print(f"  - Records fetched: {len(records)}")
