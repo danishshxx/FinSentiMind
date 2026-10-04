@@ -43,22 +43,40 @@ def fetch_all(
     helper loops in `page_size` increments until the table (or filtered
     subset) is exhausted.
 
+    FILTER SEMANTICS:
+        Each entry in `filters` maps to a PostgREST operator:
+
+            {"col": "value"}          → col = 'value'         (.eq)
+            {"col": ["a", "b"]}       → col IN ('a', 'b')      (.in_)
+            {"col": None}             → col IS NULL            (.is_)
+
+        Empty list value ({"col": []}) raises ValueError — likely a bug
+        in the caller's logic (forgot to populate the list).
+
+        Order of keys in `filters` determines chain order (Python 3.7+
+        dict insertion order). Deterministic for debugging.
+
     DETERMINISM REQUIREMENT:
         `order_by` MUST reference a UNIQUE column (e.g., primary key 'id').
         If it does not, rows may shift between pages, causing duplicates
-        or missing records. See PostgREST pagination caveats.
+        or missing records. See docs/pagination.md for details.
 
     EXACT MULTIPLES:
         If the total row count is an exact multiple of `page_size`, one
         extra empty query is performed to confirm completion. This is a
         deliberate trade-off for guaranteed completeness.
 
+    KNOWN LIMITATIONS:
+        - No IS NOT NULL filter (use post-fetch Python filter for now).
+        - No range filter (.gt, .lt, .gte, .lte) — apply in Python if needed.
+        - Concurrent writes during pagination may cause row shifts.
+        See docs/pagination.md for full list.
+
     Args:
         table: Table name (e.g., 'harga_saham').
         select: Column projection string (default '*').
         page_size: Rows per page. Must be 1..1000 (Supabase hard limit).
-        filters: Optional dict of column -> value. Values that are
-            list/tuple become `.in_(col, values)`; others become `.eq(col, value)`.
+        filters: Optional dict of column -> value. See FILTER SEMANTICS above.
         order_by: Column name for deterministic ordering. Default 'id'.
             MUST be unique for correct pagination.
         ascending: Sort direction. Default True.
@@ -68,7 +86,7 @@ def fetch_all(
         specified by `order_by`.
 
     Raises:
-        ValueError: If page_size, table, or order_by are invalid.
+        ValueError: If page_size, table, order_by, or filters are invalid.
         Exception: Any error from Supabase `.execute()` is propagated
             unchanged (no swallowing).
     """
@@ -88,6 +106,15 @@ def fetch_all(
             f"(Supabase hard limit), got {page_size}"
         )
 
+    # Validate filters early (fail-fast before any network call).
+    if filters:
+        for key, value in filters.items():
+            if isinstance(value, (list, tuple)) and len(value) == 0:
+                raise ValueError(
+                    f"filters[{key!r}] is an empty list — likely a bug. "
+                    f"Pass None for IS NULL, or omit the filter."
+                )
+
     supabase = get_supabase_client()
     all_rows: List[Dict[str, Any]] = []
     offset = 0
@@ -99,7 +126,9 @@ def fetch_all(
 
         if filters:
             for key, value in filters.items():
-                if isinstance(value, (list, tuple)):
+                if value is None:
+                    query = query.is_(key, "null")
+                elif isinstance(value, (list, tuple)):
                     query = query.in_(key, list(value))
                 else:
                     query = query.eq(key, value)
@@ -129,10 +158,8 @@ def fetch_all(
 
     else:
         # while-loop `else` runs only if loop never broke.
-        # Reaching here means we hit _MAX_PAGES without exhausting data.
         logger.warning(
-            "Hit max pages (%d) while fetching '%s'. "
-            "Result may be incomplete.",
+            "Hit max pages (%d) while fetching '%s'. Result may be incomplete.",
             _MAX_PAGES,
             table,
         )

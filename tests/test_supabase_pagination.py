@@ -16,11 +16,6 @@ class _FakeResponse:
 
 
 class _FakeTable:
-    """
-    Stateful mock that returns successive pages from `pages` on each
-    `.execute()` call. Records chained calls for assertions.
-    """
-
     def __init__(self, pages: List[List[dict]]):
         self._pages = list(pages)
         self._call_idx = 0
@@ -30,6 +25,7 @@ class _FakeTable:
         self.in_calls: List[tuple] = []
         self.order_calls: List[tuple] = []
         self.select_calls: List[str] = []
+        self.is_calls: List[tuple] = []
 
     def select(self, select_str: str):
         self.select_calls.append(select_str)
@@ -60,6 +56,10 @@ class _FakeTable:
         data = self._pages[self._call_idx]
         self._call_idx += 1
         return _FakeResponse(data)
+    
+    def is_(self, key: str, value: str):   # ← NEW
+        self.is_calls.append((key, value))
+        return self
 
 
 class _FakeSupabase:
@@ -263,3 +263,80 @@ def test_error_from_execute_propagates():
     ):
         with pytest.raises(RuntimeError, match="Supabase connection lost"):
             fetch_all("t")
+            
+            
+# ---------------------------------------------------------------------------
+# NULL filter (IS NULL) support — TASK 001E
+# ---------------------------------------------------------------------------
+
+def test_none_value_maps_to_is_null():
+    patcher, fake = _patch_client([[]])
+    with patcher:
+        fetch_all("t", filters={"sentiment_label": None})
+    assert fake.table_mock.is_calls == [("sentiment_label", "null")]
+    assert fake.table_mock.eq_calls == []
+    assert fake.table_mock.in_calls == []
+
+
+def test_none_filter_combined_with_scalar():
+    patcher, fake = _patch_client([[]])
+    with patcher:
+        fetch_all(
+            "t",
+            filters={"sentiment_label": None, "source": "CNBC"},
+        )
+    assert fake.table_mock.is_calls == [("sentiment_label", "null")]
+    assert fake.table_mock.eq_calls == [("source", "CNBC")]
+
+
+def test_none_filter_combined_with_list():
+    patcher, fake = _patch_client([[]])
+    with patcher:
+        fetch_all(
+            "t",
+            filters={"sentiment_label": None, "kode_saham": ["BBCA", "BBRI"]},
+        )
+    assert fake.table_mock.is_calls == [("sentiment_label", "null")]
+    assert fake.table_mock.in_calls == [("kode_saham", ["BBCA", "BBRI"])]
+
+
+def test_multiple_none_filters():
+    patcher, fake = _patch_client([[]])
+    with patcher:
+        fetch_all(
+            "t",
+            filters={"sentiment_label": None, "confidence": None},
+        )
+    assert fake.table_mock.is_calls == [
+        ("sentiment_label", "null"),
+        ("confidence", "null"),
+    ]
+
+
+def test_empty_list_filter_raises():
+    with pytest.raises(ValueError, match="empty list"):
+        fetch_all("t", filters={"kode_saham": []})
+
+
+def test_empty_tuple_filter_raises():
+    with pytest.raises(ValueError, match="empty list"):
+        fetch_all("t", filters={"kode_saham": ()})
+
+
+def test_empty_list_filter_fails_before_network():
+    """Validation should fail before get_supabase_client is called."""
+    with patch(
+        "app.database.supabase_client.get_supabase_client"
+    ) as mock_client:
+        with pytest.raises(ValueError):
+            fetch_all("t", filters={"col": []})
+        mock_client.assert_not_called()
+
+
+def test_scalar_filter_unaffected_by_none_support():
+    """Regression — scalar string still uses .eq(), not .is_()."""
+    patcher, fake = _patch_client([[]])
+    with patcher:
+        fetch_all("t", filters={"kode_saham": "BBCA"})
+    assert fake.table_mock.eq_calls == [("kode_saham", "BBCA")]
+    assert fake.table_mock.is_calls == []
