@@ -1,23 +1,19 @@
+"""RSS-first scraper for Indonesian financial news."""
 import hashlib
 from datetime import datetime, timezone
 from typing import Iterable, List
 
 import feedparser
 
+from app.core.logging import get_logger
 from app.models.schemas import NewsArticle
 
 
+logger = get_logger(__name__)
+
+
 class RSSNewsScraper:
-    """
-    RSS-first scraper for Indonesian financial news.
-
-    Fetches all configured feeds concurrently-agnostic (sequential feedparser
-    calls; each feed is fast) and returns a flat list of NewsArticle. Ticker
-    filtering/tagging is delegated to the orchestrator (aliases.py) so that
-    this class stays a pure ingestion layer.
-
-    Only VERIFIED feeds (returns >0 entries on test) are included by default.
-    """
+    """RSS-first scraper. Ticker tagging dilakukan oleh orchestrator."""
 
     DEFAULT_FEEDS: List[tuple[str, str]] = [
         ("https://www.cnbcindonesia.com/market/rss", "CNBC Indonesia"),
@@ -39,24 +35,19 @@ class RSSNewsScraper:
         self.timeout = timeout
 
     def fetch_articles(self) -> List[NewsArticle]:
-        """
-        Fetch and parse all configured RSS feeds.
-
-        Returns:
-            Flat list of NewsArticle across all feeds. Skips malformed entries.
-        """
+        """Fetch and parse all configured RSS feeds."""
         scraped_at = datetime.now(timezone.utc)
         articles: List[NewsArticle] = []
 
         for feed_url, source_name in self.feeds:
             try:
                 parsed = feedparser.parse(feed_url)
-            except Exception as e:
-                print(f"[RSSNewsScraper] Failed to parse {feed_url}: {e}")
+            except Exception:
+                logger.error("Failed to parse feed %s", feed_url, exc_info=True)
                 continue
 
             if not parsed.entries:
-                print(f"[RSSNewsScraper] Empty feed: {feed_url}")
+                logger.warning("Empty feed: %s", feed_url)
                 continue
 
             for entry in parsed.entries:
@@ -77,8 +68,10 @@ class RSSNewsScraper:
                             content_hash=self._hash(title, link),
                         )
                     )
-                except Exception as e:
-                    print(f"[RSSNewsScraper] Skip malformed entry from {source_name}: {e}")
+                except Exception:
+                    logger.warning(
+                        "Skip malformed entry from %s", source_name, exc_info=True
+                    )
                     continue
 
         return articles

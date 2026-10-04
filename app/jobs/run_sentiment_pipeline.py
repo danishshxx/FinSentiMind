@@ -1,20 +1,16 @@
+"""Orchestrator untuk sentiment analysis pada berita yang belum dianalisis."""
 from typing import Any, Dict, List
 
+from app.core.logging import get_logger, setup_logging
 from app.database.supabase_client import get_supabase_client
 from app.services.sentiment_service import analyze_text
 
 
+logger = get_logger(__name__)
+
+
 def run_sentiment_analysis() -> None:
-    """
-    Orchestrate sentiment analysis for unprocessed news articles in Supabase.
-
-    Fetches rows from 'berita_saham' where 'sentiment_label' is NULL, runs each
-    article's title through the IndoBERT sentiment classifier, and updates the
-    corresponding row with 'sentiment_label', 'sentiment_score', and 'confidence'.
-
-    Returns:
-        None
-    """
+    """Analyze pending articles and update sentiment columns."""
     supabase = get_supabase_client()
 
     try:
@@ -24,17 +20,19 @@ def run_sentiment_analysis() -> None:
             .is_("sentiment_label", "null")
             .execute()
         )
-    except Exception as e:
-        print(f"[SentimentPipeline] Failed to fetch pending articles: {e}")
+    except Exception:
+        logger.error("Failed to fetch pending articles", exc_info=True)
         return
 
-    articles: List[Dict[str, Any]] = response.data if response and response.data else []
+    articles: List[Dict[str, Any]] = (
+        response.data if response and response.data else []
+    )
 
     if not articles:
-        print("[SentimentPipeline] Tidak ada berita baru untuk dianalisis")
+        logger.info("Tidak ada berita baru untuk dianalisis.")
         return
 
-    print(f"[SentimentPipeline] Found {len(articles)} article(s) to analyze.")
+    logger.info("Found %d article(s) to analyze.", len(articles))
 
     success_count = 0
     failure_count = 0
@@ -54,15 +52,27 @@ def run_sentiment_analysis() -> None:
                 "sentiment_score": result["score"],
                 "confidence": result["confidence"],
             }
-            supabase.table("berita_saham").update(update_payload).eq("id", article_id).execute()
+            (
+                supabase.table("berita_saham")
+                .update(update_payload)
+                .eq("id", article_id)
+                .execute()
+            )
             success_count += 1
-        except Exception as e:
+        except Exception:
             failure_count += 1
-            print(f"[SentimentPipeline] Failed to process article id={article_id}: {e}")
+            logger.error(
+                "Failed to process article id=%s", article_id, exc_info=True
+            )
             continue
 
-    print(f"[SentimentPipeline] Done. Success: {success_count}, Failed: {failure_count}")
+    logger.info(
+        "Sentiment pipeline done — success=%d failed=%d",
+        success_count,
+        failure_count,
+    )
 
 
 if __name__ == "__main__":
+    setup_logging()
     run_sentiment_analysis()

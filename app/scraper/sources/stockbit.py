@@ -1,25 +1,20 @@
+"""Stockbit stream scraper (best-effort, optional)."""
 import hashlib
-import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
 import requests
 
+from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.models.schemas import NewsArticle
 
 
+logger = get_logger(__name__)
+
+
 class StockbitScraper:
-    """
-    Best-effort Stockbit stream scraper.
-
-    NOTE: Stockbit does not expose a public API. This scraper relies on a
-    manually-provisioned Bearer token (env: STOCKBIT_BEARER_TOKEN) and the
-    internal `/stream/v1/streams` endpoint. It is treated as best-effort:
-        - If the token is missing/expired, the scraper returns an empty list.
-        - Endpoint changes may break this without warning.
-
-    Do NOT treat Stockbit as a critical source. It is a bonus signal.
-    """
+    """Best-effort Stockbit scraper. Requires STOCKBIT_BEARER_TOKEN."""
 
     STREAM_URL = "https://exodus.stockbit.com/stream/v1/streams"
     BASE_URL = "https://stockbit.com"
@@ -30,12 +25,18 @@ class StockbitScraper:
         timeout: int = 10,
         headers: Optional[dict] = None,
     ):
-        self.bearer_token = bearer_token or os.getenv("STOCKBIT_BEARER_TOKEN")
+        settings = get_settings()
+        self.bearer_token = (
+            bearer_token if bearer_token is not None
+            else settings.stockbit_bearer_token
+        )
         self.timeout = timeout
         self.headers = {
             "User-Agent": "Stockbit/1.0 (Android)",
             "Accept": "application/json",
-            "Authorization": f"Bearer {self.bearer_token}" if self.bearer_token else "",
+            "Authorization": (
+                f"Bearer {self.bearer_token}" if self.bearer_token else ""
+            ),
         }
         if headers:
             self.headers.update(headers)
@@ -44,18 +45,8 @@ class StockbitScraper:
         return bool(self.bearer_token)
 
     def fetch_articles(self, ticker: str, limit: int = 30) -> List[NewsArticle]:
-        """
-        Fetch recent stream posts mentioning the ticker.
-
-        Args:
-            ticker: Stock code keyword (case-insensitive).
-            limit: Max posts to request.
-
-        Returns:
-            List[NewsArticle]. Empty if not configured or request fails.
-        """
         if not self.is_configured():
-            print("[StockbitScraper] Not configured (missing STOCKBIT_BEARER_TOKEN). Skipping.")
+            logger.info("Not configured (missing STOCKBIT_BEARER_TOKEN). Skipping.")
             return []
 
         params = {"symbol": ticker.upper(), "limit": limit, "type": "news"}
@@ -68,11 +59,11 @@ class StockbitScraper:
             )
             response.raise_for_status()
             payload = response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"[StockbitScraper] Request failed: {e}")
+        except requests.exceptions.RequestException:
+            logger.error("Request failed for ticker %s", ticker, exc_info=True)
             return []
-        except ValueError as e:
-            print(f"[StockbitScraper] Invalid JSON response: {e}")
+        except ValueError:
+            logger.error("Invalid JSON response for ticker %s", ticker, exc_info=True)
             return []
 
         posts = payload.get("data") or payload.get("streams") or []
@@ -86,8 +77,8 @@ class StockbitScraper:
                     continue
                 post_id = post.get("id") or post.get("stream_id")
                 url = f"{self.BASE_URL}/stream/{post_id}" if post_id else self.BASE_URL
-
                 published_at = self._parse_date(post.get("created_at")) or scraped_at
+
                 articles.append(
                     NewsArticle(
                         title=title[:280],
@@ -98,8 +89,8 @@ class StockbitScraper:
                         content_hash=self._hash(title, url),
                     )
                 )
-            except Exception as e:
-                print(f"[StockbitScraper] Skip malformed post: {e}")
+            except Exception:
+                logger.warning("Skip malformed post", exc_info=True)
                 continue
 
         return articles

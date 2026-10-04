@@ -1,7 +1,9 @@
+"""Orchestrator untuk ingestion berita: RSS + Telegram + Stockbit."""
 import asyncio
 from typing import Any, Dict, List
 
 from app.core.aliases import TICKER_ALIASES, tag_tickers_in_text
+from app.core.logging import get_logger, setup_logging
 from app.database.supabase_client import get_supabase_client
 from app.models.schemas import NewsArticle
 from app.scraper.sources.rss import RSSNewsScraper
@@ -9,16 +11,19 @@ from app.scraper.sources.stockbit import StockbitScraper
 from app.scraper.sources.telegram import TelegramScraper
 
 
+logger = get_logger(__name__)
+
+
 async def run_telegram_pipeline() -> List[NewsArticle]:
     """Optional Telegram ingestion. Returns [] if not configured."""
     scraper = TelegramScraper()
     if not scraper.is_configured():
-        print("[NewsPipeline] Telegram not configured. Skipping.")
+        logger.info("Telegram not configured. Skipping.")
         return []
     try:
         return await scraper.fetch_articles(ticker=None, limit_per_channel=50)
-    except Exception as e:
-        print(f"[NewsPipeline] Telegram failed: {e}")
+    except Exception:
+        logger.error("Telegram pipeline failed", exc_info=True)
         return []
 
 
@@ -26,36 +31,31 @@ def run_stockbit_pipeline(watch_tickers: List[str]) -> List[NewsArticle]:
     """Best-effort Stockbit ingestion. Returns [] if not configured."""
     scraper = StockbitScraper()
     if not scraper.is_configured():
-        print("[NewsPipeline] Stockbit not configured. Skipping.")
+        logger.info("Stockbit not configured. Skipping.")
         return []
     articles: List[NewsArticle] = []
     for ticker in watch_tickers:
         try:
             articles.extend(scraper.fetch_articles(ticker=ticker, limit=30))
-        except Exception as e:
-            print(f"[NewsPipeline] Stockbit failed for {ticker}: {e}")
+        except Exception:
+            logger.error("Stockbit failed for %s", ticker, exc_info=True)
             continue
     return articles
 
 
 def run_rss_pipeline() -> List[NewsArticle]:
-    """RSS-first ingestion. Returns all articles; ticker tagging happens later."""
+    """RSS-first ingestion. Ticker tagging dilakukan di orchestrator."""
     try:
         return RSSNewsScraper().fetch_articles()
-    except Exception as e:
-        print(f"[NewsPipeline] RSS failed: {e}")
+    except Exception:
+        logger.error("RSS pipeline failed", exc_info=True)
         return []
 
 
 def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
-    """
-    Insert (article, ticker) pairs into 'berita_saham' after dedup by content_hash.
-
-    Args:
-        tagged: List of (NewsArticle, ticker) tuples.
-    """
+    """Insert (article, ticker) pairs after dedup by content_hash."""
     if not tagged:
-        print("[NewsPipeline] No ticker-matched articles to insert.")
+        logger.info("No ticker-matched articles to insert.")
         return
 
     supabase = get_supabase_client()
@@ -72,8 +72,8 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
             )
             if resp and resp.data:
                 existing = {r["content_hash"] for r in resp.data}
-        except Exception as e:
-            print(f"[NewsPipeline] Dedup query failed: {e}. Proceeding without dedup.")
+        except Exception:
+            logger.error("Dedup query failed; proceeding without dedup", exc_info=True)
 
     seen_in_batch: set[str] = set()
     inserted = 0
@@ -98,24 +98,21 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
         try:
             supabase.table("berita_saham").insert(record).execute()
             inserted += 1
-        except Exception as e:
-            print(f"[NewsPipeline] Insert failed for '{article.title[:60]}...': {e}")
+        except Exception:
+            logger.error(
+                "Insert failed for '%s...'", article.title[:60], exc_info=True
+            )
 
-    print(f"[NewsPipeline] Tagged pairs : {len(tagged)}")
-    print(f"[NewsPipeline] Duplicates   : {skipped_dup}")
-    print(f"[NewsPipeline] Inserted     : {inserted}")
+    logger.info(
+        "Pipeline summary — tagged=%d duplicates=%d inserted=%d",
+        len(tagged),
+        skipped_dup,
+        inserted,
+    )
 
 
 async def run_news_pipeline_async() -> None:
-    """
-    Top-level async orchestrator.
-
-    Steps:
-        1. Fetch from RSS (primary), Telegram (optional), Stockbit (optional).
-        2. Tag each article with matching tickers via alias matcher.
-        3. Skip articles with no ticker match.
-        4. Dedup by content_hash and insert into Supabase.
-    """
+    """Async orchestrator: fetch all sources → tag → dedup → insert."""
     watch_tickers = list(TICKER_ALIASES.keys())
 
     rss_task = asyncio.to_thread(run_rss_pipeline)
@@ -131,7 +128,7 @@ async def run_news_pipeline_async() -> None:
     all_articles.extend(telegram_articles or [])
     all_articles.extend(stockbit_articles or [])
 
-    print(f"[NewsPipeline] Fetched {len(all_articles)} raw articles across all sources.")
+    logger.info("Fetched %d raw articles across all sources.", len(all_articles))
 
     tagged: List[tuple[NewsArticle, str]] = []
     unmatched = 0
@@ -142,7 +139,7 @@ async def run_news_pipeline_async() -> None:
             continue
         tagged.append((article, tickers[0]))
 
-    print(f"[NewsPipeline] Matched: {len(tagged)} | Unmatched: {unmatched}")
+    logger.info("Matched: %d | Unmatched: %d", len(tagged), unmatched)
     _dedup_and_insert(tagged)
 
 
@@ -152,4 +149,5 @@ def run_news_pipeline() -> None:
 
 
 if __name__ == "__main__":
+    setup_logging()
     run_news_pipeline()
