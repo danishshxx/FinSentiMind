@@ -1,16 +1,55 @@
-# Byte-compiled / optimized / DLL files
+
+# ============================================================
+# FinSentiMind — Git Ignore Configuration
+# Explainable AI Equity Research Terminal
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 1. Python Cache & Compiled Files
+# ------------------------------------------------------------
+
 __pycache__/
-*.py[codz]
+*.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
+
+
+# ------------------------------------------------------------
+# 2. Virtual Environments
+# ------------------------------------------------------------
+
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+
+# ------------------------------------------------------------
+# 3. Environment Variables & Secrets
+# ------------------------------------------------------------
+
+.env
+.env.*
+!.env.example
+.envrc
+
+*.pem
+*.key
+*.p12
+
+
+# ------------------------------------------------------------
+# 4. Build & Distribution
+# ------------------------------------------------------------
+
 build/
-develop-eggs/
 dist/
+develop-eggs/
 downloads/
 eggs/
 .eggs/
@@ -21,145 +60,189 @@ sdist/
 var/
 wheels/
 share/python-wheels/
+
 *.egg-info/
-.installed.cfg
 *.egg
+
+.installed.cfg
 MANIFEST
 
-# PyInstaller
 *.manifest
 *.spec
 
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
+# ------------------------------------------------------------
+# 5. Testing & Coverage
+# ------------------------------------------------------------
+
+.pytest_cache/
 .coverage
 .coverage.*
-.cache
-nosetests.xml
+htmlcov/
 coverage.xml
-*.cover
-*.py.cover
+nosetests.xml
+
+.tox/
+.nox/
 .hypothesis/
-.pytest_cache/
+.cache/
 cover/
 
-# Translations
-*.mo
-*.pot
+*.cover
+*.py.cover
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
+test_output/
 
-# Flask stuff:
-instance/
-.webassets-cache
 
-# Scrapy stuff:
-.scrapy
+# ------------------------------------------------------------
+# 6. IDE & Editor Configuration
+# ------------------------------------------------------------
 
-# Sphinx documentation
-docs/_build/
+.vscode/
+.idea/
 
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# Environments
-.env
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
 .spyderproject
 .spyproject
+.ropeproject/
 
-# Rope project settings
-.ropeproject
+tempCodeRunnerFile.py
 
-# mkdocs documentation
-/site
 
-# mypy
+# ------------------------------------------------------------
+# 7. Python Tooling Cache
+# ------------------------------------------------------------
+
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# Pyre type checker
 .pyre/
-
-# pytype static type analyzer
 .pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm & VS Code
-.idea/
-.vscode/
-tempCodeRunnerFile.py
-
-# Ruff stuff:
 .ruff_cache/
 
-# PyPI configuration file
+.pybuilder/
+target/
+
 .pypirc
 
-# Marimo
+
+# ------------------------------------------------------------
+# 8. Logs & Temporary Files
+# ------------------------------------------------------------
+
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+*.tmp
+*.temp
+*.bak
+
+~$*
+.DS_Store
+Thumbs.db
+
+
+# ------------------------------------------------------------
+# 9. Jupyter & Interactive Development
+# ------------------------------------------------------------
+
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+
 marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Streamlit
+
+# ------------------------------------------------------------
+# 10. Framework Specific
+# ------------------------------------------------------------
+
+# Django / Flask
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+instance/
+.webassets-cache/
+
+# Scrapy
+.scrapy/
+
+# Sphinx / MkDocs
+docs/_build/
+/site
+
+# Streamlit credentials
 .streamlit/secrets.toml
 
-# Aider AI files
+
+# ============================================================
+# FinSentiMind Specific Rules
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 11. Legacy Aider Artifacts
+# ------------------------------------------------------------
+
 .aider*
 
-.vscode/settings.json
 
-# === FinSentiMind-specific ===
+# ------------------------------------------------------------
+# 12. Scraper Debug Artifacts
+# ------------------------------------------------------------
 
-# Debug & temporary artifacts
 cnbc_debug.html
-# debug_*.py
-# verify_feeds.py
-check_schema*.py
-# benchmark_sentiment.py
 
-# Telethon session files (credentials!)
+# Keep important utility scripts tracked:
+# - benchmark_sentiment.py
+# - check_schemas.py
+# - verify_feeds.py
+# - pipeline.py
+
+
+# ------------------------------------------------------------
+# 13. Telegram / Telethon Credentials
+# ------------------------------------------------------------
+
 *.session
 *.session-journal
 
-# ML artifacts (future)
+
+# ------------------------------------------------------------
+# 14. Machine Learning Generated Artifacts
+# ------------------------------------------------------------
+
+# Trained model binaries
 ml/models/*.pkl
+ml/models/*.pickle
+ml/models/*.joblib
+
+# Generated datasets
 ml/data/*.parquet
 ml/data/*.csv
-!ml/data/.gitkeep
+ml/data/*.feather
 
-# Env variants
+# Preserve placeholder files
+!ml/data/.gitkeep
+!ml/models/.gitkeep
+
+
+# ------------------------------------------------------------
+# 15. Local Experiment Outputs
+# ------------------------------------------------------------
+
+experiments/outputs/
+reports/generated/
+artifacts/
+
+# ============================================================
+# END
+# ============================================================
+
+# Environment files
+.env
 .env.*
 !.env.example
-
-# Local test outputs
-test_output/
