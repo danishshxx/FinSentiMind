@@ -61,8 +61,7 @@ def setup_logging(level: Optional[str] = None) -> None:
     root = logging.getLogger()
     root.setLevel(resolved)
 
-    # Add our StreamHandler only if not already present.
-    # Using a named handler allows selective removal in tests.
+    # --- Handler registration (guarded) ---
     already_present = any(
         getattr(h, "name", None) == _HANDLER_NAME for h in root.handlers
     )
@@ -71,6 +70,11 @@ def setup_logging(level: Optional[str] = None) -> None:
         handler.name = _HANDLER_NAME
         handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
         root.addHandler(handler)
+
+    # --- Third-party logger silencing (independent concern) ---
+    # httpx/httpcore log full HTTP request URLs at INFO — too verbose.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
     _configured = True
 

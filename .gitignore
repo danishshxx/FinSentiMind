@@ -229,6 +229,12 @@ ml/data/*.feather
 !ml/data/.gitkeep
 !ml/models/.gitkeep
 
+# === FinSentiMind ML artifacts ===
+ml/reports/
+ml/data/
+!ml/reports/.gitkeep
+!ml/data/.gitkeep
+
 
 # ------------------------------------------------------------
 # 15. Local Experiment Outputs

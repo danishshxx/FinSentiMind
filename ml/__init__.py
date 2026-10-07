@@ -1,0 +1,1 @@
+"""FinSentiMind machine learning package (Phase 1+)."""

@@ -2,7 +2,7 @@
 import asyncio
 from typing import Any, Dict, List
 
-from app.core.aliases import TICKER_ALIASES, tag_tickers_in_text
+from app.core.aliases import WATCH_TICKERS, tag_tickers_in_text
 from app.core.logging import get_logger, setup_logging
 from app.database.supabase_client import get_supabase_client
 from app.models.schemas import NewsArticle
@@ -113,7 +113,7 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
 
 async def run_news_pipeline_async() -> None:
     """Async orchestrator: fetch all sources → tag → dedup → insert."""
-    watch_tickers = list(TICKER_ALIASES.keys())
+    watch_tickers = list(WATCH_TICKERS)
 
     rss_task = asyncio.to_thread(run_rss_pipeline)
     telegram_task = run_telegram_pipeline()
