@@ -15,8 +15,16 @@ logger = get_logger(__name__)
 class YahooFinanceScraper:
     """Scraper for historical OHLCV data from Yahoo Finance."""
 
-    def __init__(self, auto_adjust: bool = False):
+    def __init__(self, auto_adjust: bool = False, raise_on_error: bool = False):
+        """
+        Args:
+            auto_adjust: Pass-through to yfinance (default False).
+            raise_on_error: If True, re-raise exceptions from yfinance instead
+                of catching and returning empty list. Useful for backfill
+                orchestration where retry logic is applied.
+        """
         self.auto_adjust = auto_adjust
+        self.raise_on_error = raise_on_error
 
     def fetch_historical_data(
         self, ticker: str, period: str = "1mo"
@@ -31,6 +39,8 @@ class YahooFinanceScraper:
                 period=period, auto_adjust=self.auto_adjust
             )
         except Exception:
+            if self.raise_on_error:
+                raise
             logger.error("Failed to fetch data for %s", ticker, exc_info=True)
             return []
 
