@@ -1,9 +1,10 @@
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 
-# --- Soft dotenv loading ----------------------------------------------------
+# --- Soft dotenv loading ---
 try:
     from dotenv import load_dotenv  # type: ignore
     load_dotenv(override=False)
@@ -34,6 +35,11 @@ class Settings:
     # Logging
     log_level: str = "INFO"
 
+    # Market time (TASK 103)
+    market_timezone: str = "Asia/Jakarta"
+    signal_cutoff_hour: int = 16
+    signal_cutoff_minute: int = 0
+
     @property
     def telegram_configured(self) -> bool:
         return bool(
@@ -46,6 +52,10 @@ class Settings:
     def stockbit_configured(self) -> bool:
         return bool(self.stockbit_bearer_token)
 
+    def market_tz(self) -> ZoneInfo:
+        """Return ZoneInfo for the configured market timezone."""
+        return ZoneInfo(self.market_timezone)
+
     def __repr__(self) -> str:
         return (
             f"Settings("
@@ -55,12 +65,14 @@ class Settings:
             f"telegram_api_hash={'***' if self.telegram_api_hash else None}, "
             f"telegram_channels={self.telegram_channels}, "
             f"stockbit_bearer_token={'***' if self.stockbit_bearer_token else None}, "
-            f"log_level={self.log_level!r}"
+            f"log_level={self.log_level!r}, "
+            f"market_timezone={self.market_timezone!r}, "
+            f"signal_cutoff={self.signal_cutoff_hour:02d}:{self.signal_cutoff_minute:02d}"
             f")"
         )
 
 
-# --- Env parsing helpers ----------------------------------------------------
+# --- Env parsing helpers ---
 
 def _require(name: str) -> str:
     value = os.getenv(name)
@@ -88,6 +100,12 @@ def _optional_int(name: str) -> Optional[int]:
         ) from e
 
 
+def _optional_int_default(name: str, default: int) -> int:
+    """Read optional int; fall back to default if unset (0 is preserved)."""
+    value = _optional_int(name)
+    return default if value is None else value
+
+
 def _optional_list(name: str) -> List[str]:
     value = _optional(name)
     if not value:
@@ -95,7 +113,7 @@ def _optional_list(name: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-# --- Public API -------------------------------------------------------------
+# --- Public API ---
 
 def load_settings() -> Settings:
     """Load settings from environment. Raises ConfigError on invalid config."""
@@ -107,6 +125,9 @@ def load_settings() -> Settings:
         telegram_channels=_optional_list("TELEGRAM_CHANNELS"),
         stockbit_bearer_token=_optional("STOCKBIT_BEARER_TOKEN"),
         log_level=(_optional("LOG_LEVEL") or "INFO").upper(),
+        market_timezone=_optional("MARKET_TIMEZONE") or "Asia/Jakarta",
+        signal_cutoff_hour=_optional_int_default("SIGNAL_CUTOFF_HOUR", 16),
+        signal_cutoff_minute=_optional_int_default("SIGNAL_CUTOFF_MINUTE", 0),
     )
 
 
