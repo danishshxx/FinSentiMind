@@ -39,6 +39,14 @@ class Settings:
     market_timezone: str = "Asia/Jakarta"
     signal_cutoff_hour: int = 16
     signal_cutoff_minute: int = 0
+    
+    # Market time
+    market_timezone: str = "Asia/Jakarta"
+    signal_cutoff_hour: int = 16
+    signal_cutoff_minute: int = 0
+
+    # News availability
+    backfill_threshold_days: int = 7
 
     @property
     def telegram_configured(self) -> bool:
@@ -67,7 +75,8 @@ class Settings:
             f"stockbit_bearer_token={'***' if self.stockbit_bearer_token else None}, "
             f"log_level={self.log_level!r}, "
             f"market_timezone={self.market_timezone!r}, "
-            f"signal_cutoff={self.signal_cutoff_hour:02d}:{self.signal_cutoff_minute:02d}"
+            f"signal_cutoff={self.signal_cutoff_hour:02d}:{self.signal_cutoff_minute:02d}, "
+            f"backfill_threshold_days={self.backfill_threshold_days}"
             f")"
         )
 
@@ -128,6 +137,7 @@ def load_settings() -> Settings:
         market_timezone=_optional("MARKET_TIMEZONE") or "Asia/Jakarta",
         signal_cutoff_hour=_optional_int_default("SIGNAL_CUTOFF_HOUR", 16),
         signal_cutoff_minute=_optional_int_default("SIGNAL_CUTOFF_MINUTE", 0),
+        backfill_threshold_days=_optional_int_default("BACKFILL_THRESHOLD_DAYS", 7),
     )
 
 
