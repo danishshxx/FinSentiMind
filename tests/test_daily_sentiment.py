@@ -319,3 +319,181 @@ def test_output_is_sparse_no_filler_rows():
     out = aggregate_daily_sentiment(df)
     # 1 ticker, 1 date, only 1 row (not the full 7-date calendar)
     assert len(out) == 1
+
+def test_quality_zero_delta_is_live():
+    df = _df([_row(
+        "BBCA",
+        published="2025-01-06T10:00:00+07:00",
+        scraped="2025-01-06T10:00:00+07:00",
+    )])
+    df = calculate_effective_available_at(df, JKT)
+    df = classify_availability_quality(df, threshold_days=7)
+    assert df["availability_quality"].iloc[0] == "live"
+
+
+def test_quality_exactly_threshold_is_live():
+    df = _df([_row(
+        "BBCA",
+        published="2025-01-01T10:00:00+07:00",
+        scraped="2025-01-08T10:00:00+07:00",  # exactly 7 days
+    )])
+    df = calculate_effective_available_at(df, JKT)
+    df = classify_availability_quality(df, threshold_days=7)
+    assert df["availability_quality"].iloc[0] == "live"
+
+
+def test_quality_above_threshold_is_reconstructed():
+    df = _df([_row(
+        "BBCA",
+        published="2025-01-01T10:00:00+07:00",
+        scraped="2025-01-09T10:00:00+07:00",  # 8 days
+    )])
+    df = calculate_effective_available_at(df, JKT)
+    df = classify_availability_quality(df, threshold_days=7)
+    assert df["availability_quality"].iloc[0] == "reconstructed"
+
+
+def test_quality_negative_delta_is_reconstructed(caplog):
+    """Anomaly: scraped before published -> reconstructed + warning."""
+    df = _df([_row(
+        "BBCA",
+        published="2025-01-06T10:00:00+07:00",
+        scraped="2025-01-05T10:00:00+07:00",  # 1 day BEFORE published
+    )])
+    df = calculate_effective_available_at(df, JKT)
+    with caplog.at_level("WARNING"):
+        df = classify_availability_quality(df, threshold_days=7)
+    assert df["availability_quality"].iloc[0] == "reconstructed"
+    assert any("scraped_at < published_at" in r.message for r in caplog.records)
+
+
+def test_quality_custom_threshold_3_days():
+    df = _df([_row(
+        "BBCA",
+        published="2025-01-01T10:00:00+07:00",
+        scraped="2025-01-05T10:00:00+07:00",  # 4 days
+    )])
+    df = calculate_effective_available_at(df, JKT)
+    # threshold=7 -> live; threshold=3 -> reconstructed
+    assert (
+        classify_availability_quality(df.copy(), threshold_days=7)
+        ["availability_quality"].iloc[0]
+        == "live"
+    )
+    assert (
+        classify_availability_quality(df.copy(), threshold_days=3)
+        ["availability_quality"].iloc[0]
+        == "reconstructed"
+    )
+
+
+def test_audit_logs_when_all_valid(caplog):
+    """When all rows valid, audit logs zero-exclusion info message."""
+    from unittest.mock import patch
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row("BBCA", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+            _row("BBRI", "2025-01-06T11:00:00+07:00", "2025-01-06T11:05:00+07:00"),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        with caplog.at_level("INFO"):
+            df = load_news()
+        assert len(df) == 2
+        assert any(
+            "News audit" in r.message and "all valid" in r.message
+            for r in caplog.records
+        )
+
+# ---------------------------------------------------------------------------
+# Close-out patch â€” mutually exclusive ticker audit counters
+# ---------------------------------------------------------------------------
+
+def test_audit_null_ticker_counts_as_missing_only(caplog):
+    """NULL ticker must increment missing_ticker (not empty_ticker)."""
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row(None, "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        with caplog.at_level("INFO"):
+            df = load_news()
+
+    assert len(df) == 0
+    log = " ".join(r.message for r in caplog.records)
+    assert "missing_ticker=1" in log
+    assert "empty_ticker=0" in log
+
+
+def test_audit_empty_string_ticker_counts_as_empty_only(caplog):
+    """Empty-string ticker must increment empty_ticker (not missing_ticker)."""
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row("", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        with caplog.at_level("INFO"):
+            df = load_news()
+
+    assert len(df) == 0
+    log = " ".join(r.message for r in caplog.records)
+    assert "missing_ticker=0" in log
+    assert "empty_ticker=1" in log
+
+
+def test_audit_whitespace_ticker_counts_as_empty_only(caplog):
+    """Whitespace-only ticker must increment empty_ticker."""
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row("   ", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        with caplog.at_level("INFO"):
+            df = load_news()
+
+    assert len(df) == 0
+    log = " ".join(r.message for r in caplog.records)
+    assert "missing_ticker=0" in log
+    assert "empty_ticker=1" in log
+
+
+def test_audit_valid_ticker_valid_sentiment_retained():
+    """Valid ticker + valid sentiment must be retained (no exclusions)."""
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row(
+                "BBCA",
+                "2025-01-06T10:00:00+07:00",
+                "2025-01-06T10:05:00+07:00",
+                label="POSITIVE",
+                score=1.0,
+            ),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        df = load_news()
+
+    assert len(df) == 1
+    assert df.iloc[0]["ticker"] == "BBCA"
+
+
+def test_audit_mutually_exclusive_ticker_counts(caplog):
+    """Mix of NULL/empty/whitespace/valid tickers -> exclusive counters."""
+    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
+        mock_fetch.return_value = [
+            _row(None, "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+            _row("", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+            _row("   ", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+            _row("BBCA", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+        ]
+        from ml.preprocessing.daily_sentiment import load_news
+        with caplog.at_level("INFO"):
+            df = load_news()
+
+    # Only BBCA retained
+    assert len(df) == 1
+    assert df.iloc[0]["ticker"] == "BBCA"
+
+    log = " ".join(r.message for r in caplog.records)
+    # NULL -> missing=1; empty + whitespace -> empty=2 (not 3)
+    assert "missing_ticker=1" in log
+    assert "empty_ticker=2" in log
+    assert "excluded=3" in log
