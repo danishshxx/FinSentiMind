@@ -252,3 +252,5 @@ artifacts/
 .env
 .env.*
 !.env.example
+
+ml/data/
