@@ -20,6 +20,11 @@ from typing import Any, Dict, List, Optional, Sequence
 import pandas as pd
 
 from app.core.logging import get_logger
+from ml.metadata.master import (
+    DEFAULT_INSTRUMENT_PATH,
+    InstrumentMaster,
+    InstrumentMasterError,
+)
 from ml.preprocessing.dataset_store import resolve_active_dataset
 
 
@@ -173,10 +178,21 @@ class DatasetSource:
 class MarketDataRepository:
     """Loads the local pipeline artifacts once and serves derived views."""
 
-    def __init__(self, data_dir: Optional[Path | str] = None) -> None:
+    def __init__(
+        self,
+        data_dir: Optional[Path | str] = None,
+        instrument_master_path: Optional[Path | str] = None,
+    ) -> None:
         self.data_root = Path(
             data_dir or os.getenv("FINSENTIMIND_DATA_DIR") or DEFAULT_DATA_DIR
         )
+        try:
+            self.instrument_master = InstrumentMaster.load(
+                instrument_master_path or DEFAULT_INSTRUMENT_PATH
+            )
+        except InstrumentMasterError as exc:
+            logger.warning("Instrument master unavailable: %s", exc)
+            self.instrument_master = InstrumentMaster.empty()
         self.active_dataset = resolve_active_dataset(self.data_root)
         self.data_dir = self.active_dataset.active_dir
         self.base_path = self.data_dir / BASE_FILENAME
@@ -288,6 +304,11 @@ class MarketDataRepository:
             "trading_sessions": int(base["trading_date"].nunique()),
             "total_rows": int(len(base)),
             "sentiment_rows_with_news": int((base.get("news_count", pd.Series(dtype="int64")) > 0).sum()),
+            "instrument_metadata": {
+                "metadata_version": self.instrument_master.metadata_version,
+                "count": len(self.instrument_master.instruments),
+                "updated_at": self.instrument_master.updated_at,
+            },
             "sources": [s.to_dict() for s in sources],
             "note": (
                 "Data berasal dari artefak riset lokal (Parquet), bukan feed pasar live. "
@@ -318,7 +339,24 @@ class MarketDataRepository:
     def _stock_records(self) -> pd.DataFrame:
         latest = self._latest_frame()
         meta = self._ticker_meta_frame()
-        return latest.merge(meta, on="ticker", how="left")
+        records = latest.merge(meta, on="ticker", how="left")
+        master = self.instrument_master.instruments_by_ticker
+        records["company_name"] = records["ticker"].map(
+            lambda ticker: (master.get(ticker).company_name if master.get(ticker) else None)
+        )
+        records["sector"] = records["ticker"].map(
+            lambda ticker: (master.get(ticker).sector if master.get(ticker) else None)
+        )
+        records["listing_status"] = records["ticker"].map(
+            lambda ticker: (master.get(ticker).listing_status if master.get(ticker) else "unknown")
+        )
+        records["metadata_status"] = records["ticker"].map(
+            lambda ticker: (master.get(ticker).metadata_status if master.get(ticker) else "unavailable")
+        )
+        records["completeness_pct"] = records["ticker"].map(
+            lambda ticker: (master.get(ticker).completeness_pct if master.get(ticker) else None)
+        )
+        return records
 
     def _sentiment_within(
         self, ticker: str, start: Optional[date] = None, end: Optional[date] = None
@@ -478,6 +516,21 @@ class MarketDataRepository:
             "as_of": self.latest_date(),
             "ticker": symbol,
             "latest": _jsonable(_stock_item(latest, symbol)),
+            "instrument": (
+                self.instrument_master.get(symbol).to_dict()
+                if self.instrument_master.get(symbol)
+                else {
+                    "ticker": symbol,
+                    "metadata_status": "unavailable",
+                    "company_name": None,
+                    "sector": None,
+                    "subsector": None,
+                    "listing_status": "unknown",
+                    "listing_date": None,
+                    "completeness_pct": None,
+                    "missing_fields": [],
+                }
+            ),
             "stats": {
                 "high_252_sessions": high_window,
                 "low_252_sessions": low_window,
@@ -651,8 +704,25 @@ def _stock_item(row: Any, ticker: Optional[str] = None) -> Dict[str, Any]:
     for column in (*PRICE_COLUMNS, *SENTIMENT_COLUMNS):
         if hasattr(row, column):
             data[column] = getattr(row, column)
-    for column in ("price_rows", "price_start", "price_end", "news_days"):
+    for column in (
+        "price_rows",
+        "price_start",
+        "price_end",
+        "news_days",
+        "company_name",
+        "sector",
+        "listing_status",
+        "metadata_status",
+        "completeness_pct",
+    ):
         if hasattr(row, column):
             value = getattr(row, column)
-            data[column] = _date_str(value) if column in {"price_start", "price_end"} else _opt_int(value)
+            if column in {"price_start", "price_end"}:
+                data[column] = _date_str(value)
+            elif column in {"company_name", "sector", "listing_status", "metadata_status"}:
+                data[column] = None if _is_missing(value) else str(value)
+            elif column == "completeness_pct":
+                data[column] = _opt_float(value)
+            else:
+                data[column] = _opt_int(value)
     return data

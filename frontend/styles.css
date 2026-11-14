@@ -794,7 +794,8 @@ kbd {
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
 }
-.security-title-row { display: flex; align-items: center; gap: 10px; }
+.security-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.security-company { color: var(--muted); font-size: 11px; max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-head h2 { font-family: var(--mono); font-size: 21px; letter-spacing: 0; }
 .security-tag {
   color: var(--faint);

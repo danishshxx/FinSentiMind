@@ -122,3 +122,30 @@ def data_health(
         return repo.data_health(freshness_threshold_days=freshness_days)
     except DataUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/instruments", summary="Auditable instrument master data")
+def list_instruments(request: Request) -> dict:
+    master = get_repository(request).instrument_master
+    return {
+        "count": len(master.instruments),
+        "metadata_version": master.metadata_version,
+        "effective_from": master.effective_from,
+        "updated_at": master.updated_at,
+        "sources": master.sources,
+        "revisions": master.revisions,
+        "instruments": [instrument.to_dict() for instrument in master.instruments],
+    }
+
+
+@router.get("/instruments/{ticker}", summary="Instrument metadata for one ticker")
+def instrument_detail(ticker: str, request: Request) -> dict:
+    master = get_repository(request).instrument_master
+    symbol = ticker.strip().upper()
+    instrument = master.get(symbol)
+    if instrument is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Instrument metadata for '{ticker}' tidak tersedia.",
+        )
+    return instrument.to_dict()

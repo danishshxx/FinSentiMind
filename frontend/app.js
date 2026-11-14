@@ -771,9 +771,10 @@ function renderMonitorChart(points) {
 /* ------------------------------------------------------------------ */
 /* Stock explorer                                                      */
 /* ------------------------------------------------------------------ */
-function stockCells(item, includeSessions = true) {
+function stockCells(item, includeSessions = true, includeSector = false) {
   return `
     <td><span class="ticker" data-open="${escapeHtml(item.ticker)}">${escapeHtml(item.ticker)}</span></td>
+    ${includeSector ? `<td>${item.sector ? escapeHtml(item.sector) : '<span class="muted">?</span>'}</td>` : ""}
     <td class="num">${fmtPrice(item.close)}</td>
     <td class="num ${valueClass(item.return_1d)}">${fmtPct(item.return_1d)}</td>
     <td class="num">${fmtCompact(item.volume)}</td>
@@ -937,8 +938,11 @@ function renderDetail() {
   const latest = detail.latest;
   const stats = detail.stats;
   const quality = detail.data_quality;
+  const instrument = detail.instrument || {};
+  const unavailable = "Tidak tersedia";
   $("#detail-date").textContent = `Data per ${fmtDate(latest.trading_date)}`;
   $("#detail-title").textContent = detail.ticker;
+  $("#detail-company").textContent = instrument.company_name || "";
   $("#detail-close").textContent = fmtPrice(latest.close);
   $("#detail-return").textContent = fmtPct(latest.return_1d);
   $("#detail-return").className = valueClass(latest.return_1d);

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -268,3 +269,54 @@ def test_repository_resolves_active_generation_and_reload(tmp_path: Path):
     repo.reload()
     assert repo.active_dataset.run_id == "gen-2"
     assert repo.latest_date() == "2025-01-14"
+
+
+def test_repository_integrates_verified_instrument_metadata(tmp_path: Path):
+    payload = {
+        "schema_version": 1,
+        "metadata_version": "test-v1",
+        "effective_from": "2025-01-01",
+        "updated_at": "2025-01-01T00:00:00+00:00",
+        "sources": [
+            {"id": "idx30_universe", "name": "test", "fields": ["sector"]},
+            {"id": "project_alias_map", "name": "test", "fields": ["company_name"]},
+            {"id": "local_prices", "name": "test", "fields": ["listing_status"]},
+            {"id": "unavailable", "name": "unavailable", "fields": []},
+        ],
+        "revisions": [{"version": "test-v1", "updated_at": "2025-01-01T00:00:00+00:00"}],
+        "instruments": [
+            {
+                "ticker": "AAAA",
+                "exchange": "IDX",
+                "company_name": "Test Company",
+                "sector": "Energy",
+                "subsector": None,
+                "listing_status": "active",
+                "listing_date": None,
+                "previous_tickers": [],
+                "successor_ticker": None,
+                "provenance": {
+                    "company_name": "project_alias_map",
+                    "sector": "idx30_universe",
+                    "listing_status": "local_prices",
+                },
+            }
+        ],
+    }
+    master_path = tmp_path / "instruments.json"
+    master_path.write_text(json.dumps(payload), encoding="utf-8")
+    base, prices, sentiment, calendar = _build_frames()
+    for frame in (base, prices, sentiment):
+        frame["ticker"] = frame["ticker"].replace("AAA", "AAAA")
+    base.to_parquet(tmp_path / "base_dataset.parquet", index=False)
+    prices.to_parquet(tmp_path / "prices_clean.parquet", index=False)
+    sentiment.to_parquet(tmp_path / "daily_sentiment.parquet", index=False)
+    calendar.to_parquet(tmp_path / "trading_calendar.parquet", index=False)
+
+    repo = MarketDataRepository(tmp_path, instrument_master_path=master_path)
+    item = next(row for row in repo.list_stocks()["items"] if row["ticker"] == "AAAA")
+    assert item["company_name"] == "Test Company"
+    assert item["sector"] == "Energy"
+    assert item["metadata_status"] == "partial"
+    detail = repo.stock_detail("AAAA")
+    assert detail["instrument"]["company_name"] == "Test Company"

@@ -107,6 +107,39 @@ def test_data_health_endpoint(client: TestClient):
     assert payload["notes"]
 
 
+def test_instrument_master_endpoints(client: TestClient):
+    listing = client.get("/api/instruments")
+    assert listing.status_code == 200
+    payload = listing.json()
+    assert payload["count"] == 30
+    assert payload["metadata_version"] == "idx30-2026-08-03-v1"
+    bbca = next(item for item in payload["instruments"] if item["ticker"] == "BBCA")
+    assert bbca["sector"] == "Banking"
+    assert bbca["company_name"] == "Bank Central Asia"
+    aadi = next(item for item in payload["instruments"] if item["ticker"] == "AADI")
+    assert aadi["company_name"] is None
+
+    detail = client.get("/api/instruments/bbca")
+    assert detail.status_code == 200
+    assert detail.json()["ticker"] == "BBCA"
+
+    missing = client.get("/api/instruments/ZZZZ")
+    assert missing.status_code == 404
+
+
+def test_stock_detail_and_explorer_expose_metadata_fields(client: TestClient):
+    detail = client.get("/api/stocks/AAA")
+    assert detail.status_code == 200
+    instrument = detail.json()["instrument"]
+    assert instrument["metadata_status"] == "unavailable"
+    assert instrument["company_name"] is None
+
+    listing = client.get("/api/stocks", params={"search": "AAA"}).json()
+    item = listing["items"][0]
+    assert "sector" in item
+    assert item["metadata_status"] == "unavailable"
+
+
 def test_write_methods_are_not_exposed(client: TestClient):
     response = client.post("/api/stocks", json={"ticker": "AAA"})
     assert response.status_code == 405
@@ -122,6 +155,7 @@ def test_frontend_is_served(data_dir: Path):
         assert 'id="monitor-chart"' in index.text
         assert 'id="command-palette"' in index.text
         assert 'id="watchlist-stats"' in index.text
+        assert 'id="detail-company"' in index.text
 
         script = test_client.get("/app.js")
         assert script.status_code == 200

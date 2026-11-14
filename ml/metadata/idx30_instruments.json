@@ -1,0 +1,690 @@
+{
+  "schema_version": 1,
+  "metadata_version": "idx30-2026-08-03-v1",
+  "effective_from": "2026-08-03",
+  "updated_at": "2026-11-14T00:00:00+00:00",
+  "sources": [
+    {
+      "id": "idx30_universe",
+      "name": "FinSentiMind IDX30 universe snapshot",
+      "location": "docs/universe.md",
+      "url": "https://www.idx.co.id/en/market-data/indices/stock-index/",
+      "retrieved_at": "2026-08-03",
+      "fields": [
+        "ticker",
+        "exchange",
+        "sector"
+      ]
+    },
+    {
+      "id": "project_alias_map",
+      "name": "Project ticker alias map",
+      "location": "app/core/aliases.py",
+      "url": null,
+      "retrieved_at": "2026-08-03",
+      "fields": [
+        "company_name"
+      ]
+    },
+    {
+      "id": "local_prices",
+      "name": "Local prices_clean.parquet coverage",
+      "location": "ml/data/prices_clean.parquet",
+      "url": null,
+      "retrieved_at": "2026-11-14",
+      "fields": [
+        "listing_status"
+      ]
+    },
+    {
+      "id": "unavailable",
+      "name": "No verified source available",
+      "location": null,
+      "url": null,
+      "retrieved_at": null,
+      "fields": [
+        "subsector",
+        "listing_date"
+      ]
+    }
+  ],
+  "revisions": [
+    {
+      "version": "idx30-2026-08-03-v1",
+      "updated_at": "2026-11-14T00:00:00+00:00",
+      "note": "Initial auditable instrument master derived from the existing IDX30 snapshot and local price coverage."
+    }
+  ],
+  "instruments": [
+    {
+      "ticker": "AADI",
+      "exchange": "IDX",
+      "company_name": null,
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "unavailable",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "ADMR",
+      "exchange": "IDX",
+      "company_name": "Alamtri Minerals",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "ADRO",
+      "exchange": "IDX",
+      "company_name": "Alamtri Resources",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "AMRT",
+      "exchange": "IDX",
+      "company_name": "Sumber Alfaria Trijaya",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "ANTM",
+      "exchange": "IDX",
+      "company_name": "Aneka Tambang",
+      "sector": "Mining",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "ASII",
+      "exchange": "IDX",
+      "company_name": "Astra International",
+      "sector": "Industrials",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BBCA",
+      "exchange": "IDX",
+      "company_name": "Bank Central Asia",
+      "sector": "Banking",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BBNI",
+      "exchange": "IDX",
+      "company_name": "Bank Negara Indonesia",
+      "sector": "Banking",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BBRI",
+      "exchange": "IDX",
+      "company_name": "Bank Rakyat Indonesia",
+      "sector": "Banking",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BMRI",
+      "exchange": "IDX",
+      "company_name": "Bank Mandiri",
+      "sector": "Banking",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BRPT",
+      "exchange": "IDX",
+      "company_name": "Barito Pacific",
+      "sector": "Materials",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "BUMI",
+      "exchange": "IDX",
+      "company_name": "Bumi Resources",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "CPIN",
+      "exchange": "IDX",
+      "company_name": "Charoen Pokphand",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "DEWA",
+      "exchange": "IDX",
+      "company_name": null,
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "unavailable",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "EMTK",
+      "exchange": "IDX",
+      "company_name": "Elang Mahkota",
+      "sector": "Media",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "GOTO",
+      "exchange": "IDX",
+      "company_name": "GoTo",
+      "sector": "Tech",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "ICBP",
+      "exchange": "IDX",
+      "company_name": "Indofood CBP",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "INCO",
+      "exchange": "IDX",
+      "company_name": "Vale Indonesia",
+      "sector": "Mining",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "INDF",
+      "exchange": "IDX",
+      "company_name": "Indofood Sukses Makmur",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "INKP",
+      "exchange": "IDX",
+      "company_name": "Indah Kiat",
+      "sector": "Materials",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "JPFA",
+      "exchange": "IDX",
+      "company_name": "Japfa Comfeed",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "KLBF",
+      "exchange": "IDX",
+      "company_name": "Kalbe Farma",
+      "sector": "Healthcare",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "MBMA",
+      "exchange": "IDX",
+      "company_name": "Merdeka Battery",
+      "sector": "Mining",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "MDKA",
+      "exchange": "IDX",
+      "company_name": "Merdeka Copper Gold",
+      "sector": "Mining",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "MEDC",
+      "exchange": "IDX",
+      "company_name": "Medco Energi",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "PGAS",
+      "exchange": "IDX",
+      "company_name": "Perusahaan Gas Negara",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "PGEO",
+      "exchange": "IDX",
+      "company_name": "Pertamina Geothermal",
+      "sector": "Energy",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "TLKM",
+      "exchange": "IDX",
+      "company_name": "Telkom Indonesia",
+      "sector": "Telco",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "UNTR",
+      "exchange": "IDX",
+      "company_name": "United Tractors",
+      "sector": "Industrials",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    },
+    {
+      "ticker": "UNVR",
+      "exchange": "IDX",
+      "company_name": "Unilever Indonesia",
+      "sector": "Consumer",
+      "subsector": null,
+      "listing_status": "active",
+      "listing_date": null,
+      "previous_tickers": [],
+      "successor_ticker": null,
+      "provenance": {
+        "ticker": "idx30_universe",
+        "exchange": "idx30_universe",
+        "company_name": "project_alias_map",
+        "sector": "idx30_universe",
+        "subsector": "unavailable",
+        "listing_status": "local_prices",
+        "listing_date": "unavailable"
+      },
+      "notes": null
+    }
+  ]
+}
