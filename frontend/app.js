@@ -26,6 +26,7 @@ const state = {
     range: "6M",
     requestId: 0,
   },
+  intelligence: { loading: false, data: null, error: null, requestId: 0 },
   palette: { open: false, index: 0, items: [], previousFocus: null },
 };
 
@@ -237,7 +238,10 @@ function activateView(name, updateHash = true) {
   if (updateHash && location.hash !== `#${view}`) {
     history.replaceState(null, "", `#${view}`);
   }
-  if (view === "monitor") loadMonitor(false);
+  if (view === "monitor") {
+    loadMonitor(false);
+    loadIntelligence(false);
+  }
   if (view === "watchlist") loadWatchlistView();
   if (view === "health") loadHealth(false);
 }
@@ -766,6 +770,104 @@ function renderMonitorChart(points) {
     tooltip.style.top = `${top}px`;
     tooltip.classList.add("show");
   });
+}
+
+async function loadIntelligence(force = false) {
+  const intelligence = state.intelligence;
+  if (intelligence.loading) return;
+  if (intelligence.data && !force) {
+    renderIntelligence();
+    return;
+  }
+  const requestId = ++intelligence.requestId;
+  intelligence.loading = true;
+  try {
+    const data = await api("/market/intelligence");
+    if (requestId !== intelligence.requestId) return;
+    intelligence.data = data;
+    intelligence.error = null;
+    renderIntelligence();
+  } catch (error) {
+    if (requestId !== intelligence.requestId) return;
+    intelligence.error = error.message;
+    const regime = $("#intel-regime");
+    if (regime) regime.innerHTML = `<p class="muted small">${escapeHtml(error.message)}</p>`;
+    toast(error.message, true);
+  } finally {
+    if (requestId === intelligence.requestId) intelligence.loading = false;
+  }
+}
+
+function renderIntelligence() {
+  const data = state.intelligence.data;
+  if (!data) return;
+  const regime = data.regime || {};
+  const label = regime.label || "unknown";
+  $("#intel-regime").innerHTML = `
+    <span class="regime-label ${escapeHtml(label)}">${escapeHtml(label.replaceAll("_", " "))}</span>
+    <div class="intel-metric"><span>20D return</span><strong class="${valueClass(regime.return_20d)}">${fmtPct(regime.return_20d)}</strong></div>
+    <div class="intel-metric"><span>Return percentile</span><strong>${isMissing(regime.return_percentile) ? "?" : Number(regime.return_percentile).toFixed(2)}</strong></div>
+    <p class="regime-reason">${escapeHtml(regime.reason || "Metodologi belum tersedia.")}</p>`;
+  $("#intel-regime-tag").textContent = regime.sample_size ? `${regime.sample_size} OBS` : "METHOD";
+
+  const breadth = data.breadth || {};
+  const cross = data.cross_section || {};
+  $("#intel-cross").innerHTML = [
+    ["Median 1D", fmtPct(cross.median_return_1d)],
+    ["P10 / P90", `${fmtPct(cross.p10_return_1d)} / ${fmtPct(cross.p90_return_1d)}`],
+    ["Breadth", `${breadth.advancers ?? "?"} / ${breadth.decliners ?? "?"} / ${breadth.unchanged ?? "?"}`],
+    ["Universe", `${data.latest_session_tickers ?? "?"} / ${data.universe_size ?? "?"}`],
+    ["Sessions", data.sessions ?? "?"],
+  ]
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`)
+    .join("");
+
+  const vol = data.volatility || {};
+  const volume = data.volume_activity || {};
+  $("#intel-volume").innerHTML = [
+    ["Vol 20D ann.", fmtPct(vol.volatility_20d_annualized, 2, false)],
+    ["Latest volume", fmtCompact(volume.latest_total_volume)],
+    ["20D average", fmtCompact(volume.average_total_volume_20d)],
+    ["Relative", isMissing(volume.relative_to_20d_average) ? "?" : `${Number(volume.relative_to_20d_average).toFixed(2)}x`],
+    ["Activity", volume.description || "?"],
+  ]
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`)
+    .join("");
+
+  const sectors = data.sector_performance?.sectors || [];
+  $("#intel-sector-meta").textContent = `${data.sector_performance?.period || "20 sessions"} ? ${sectors.length} sector`;
+  $("#intel-sectors-body").innerHTML = sectors.length
+    ? sectors
+        .map(
+          (sector) => `<tr>
+            <td>${escapeHtml(sector.sector)}</td>
+            <td class="num">${sector.covered}/${sector.tickers} ? ${Number(sector.coverage_pct).toFixed(0)}%</td>
+            <td class="num ${valueClass(sector.return_20d_mean)}">${fmtPct(sector.return_20d_mean)}</td>
+            <td class="num ${valueClass(sector.return_20d_median)}">${fmtPct(sector.return_20d_median)}</td>
+          </tr>`
+        )
+        .join("")
+    : '<tr><td colspan="4" class="empty">Metadata sektor belum cukup untuk menghitung performance.</td></tr>';
+
+  const macro = data.macro || { indicators: [] };
+  $("#intel-macro-status").textContent = macro.status === "available"
+    ? `AVAILABLE ${macro.available_count}/${macro.total_count}`
+    : "UNAVAILABLE";
+  $("#intel-macro").innerHTML = (macro.indicators || [])
+    .map(
+      (item) => `<div class="source-row">
+        <div class="source-line">
+          <span class="source-name">${escapeHtml(item.label)}</span>
+          <span class="badge ${item.status === "available" ? "badge-pass" : "badge-null"}">${escapeHtml(item.status)}</span>
+        </div>
+        <div class="source-meta">
+          <span>${item.status === "available" && !isMissing(item.value) ? escapeHtml(String(item.value)) : "Tidak tersedia"}</span>
+          <span>${escapeHtml(item.as_of || item.reason || "")}</span>
+        </div>
+      </div>`
+    )
+    .join("") || '<div class="source-row"><span class="source-name">Tidak tersedia</span></div>';
+  $("#intel-macro-note").textContent = macro.note || "Macro tidak difabrikasi.";
 }
 
 /* ------------------------------------------------------------------ */
@@ -1627,7 +1729,10 @@ function bindEvents() {
   });
 
   $("#overview-refresh").addEventListener("click", () => loadOverview());
-  $("#monitor-refresh").addEventListener("click", () => loadMonitor(true));
+  $("#monitor-refresh").addEventListener("click", () => {
+    loadMonitor(true);
+    loadIntelligence(true);
+  });
   $("#explorer-refresh").addEventListener("click", () => loadExplorer());
   $("#health-refresh").addEventListener("click", () => loadHealth(true));
   $("#watchlist-clear").addEventListener("click", () => {

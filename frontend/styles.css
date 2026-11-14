@@ -589,6 +589,37 @@ kbd {
   gap: 12px;
   margin-bottom: 12px;
 }
+
+.monitor-intel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.monitor-intel-lower {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.regime-label {
+  display: inline-block;
+  padding: 3px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.regime-label.bullish { color: var(--accent); border-color: var(--accent-line); background: var(--accent-dim); }
+.regime-label.bearish { color: var(--red); border-color: rgba(255,100,112,0.35); background: var(--red-dim); }
+.regime-label.high_volatility { color: var(--amber); border-color: rgba(240,196,89,0.35); background: var(--amber-dim); }
+.regime-label.sideways, .regime-label.unknown { color: var(--muted); }
+.regime-reason { color: var(--muted); font-size: 10px; line-height: 1.45; margin-top: 8px; }
+.intel-metric { margin-top: 9px; }
+.intel-metric span { display: block; color: var(--faint); font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; }
+.intel-metric strong { display: block; font-family: var(--mono); font-size: 17px; margin-top: 2px; }
 .monitor-chart { min-height: 390px; }
 .monitor-chart svg { height: 390px; }
 .monitor-context-panel .kv { margin-top: 2px; }
@@ -957,6 +988,8 @@ kbd {
   .overview-grid > .active-panel { grid-column: span 7; }
   .overview-grid > .sentiment-panel { grid-column: span 5; }
   .monitor-top { grid-template-columns: 1fr; }
+  .monitor-intel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .monitor-intel-lower { grid-template-columns: 1fr; }
 }
 @media (max-width: 1080px) {
   .command-bar { grid-template-columns: auto minmax(200px, 1fr) auto; gap: 10px; }
@@ -1023,6 +1056,7 @@ kbd {
   .overview-grid > .sentiment-panel { grid-column: 1; }
   .health-side, .security-side { grid-template-columns: 1fr; }
   .detail-stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .monitor-intel-grid { grid-template-columns: 1fr; }
   .footer { padding: 12px 14px 16px; }
   .palette-panel { margin-top: 6vh; }
 }

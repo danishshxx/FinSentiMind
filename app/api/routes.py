@@ -149,3 +149,8 @@ def instrument_detail(ticker: str, request: Request) -> dict:
             detail=f"Instrument metadata for '{ticker}' tidak tersedia.",
         )
     return instrument.to_dict()
+
+
+@router.get("/market/intelligence", summary="Derived market context and regime")
+def market_intelligence(request: Request) -> dict:
+    return get_repository(request).market_intelligence()

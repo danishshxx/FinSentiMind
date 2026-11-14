@@ -97,6 +97,22 @@ def test_ohlcv_endpoint(client: TestClient):
     assert missing.status_code == 404
 
 
+def test_market_intelligence_endpoint(client: TestClient):
+    response = client.get("/api/market/intelligence")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["label"] == "Equal-weight local universe proxy (bukan IHSG)"
+    assert payload["regime"]["label"] in {
+        "bullish",
+        "bearish",
+        "sideways",
+        "high_volatility",
+        "unknown",
+    }
+    assert payload["macro"]["status"] == "unavailable"
+    assert payload["sector_performance"]["sectors"] == []
+
+
 def test_data_health_endpoint(client: TestClient):
     response = client.get("/api/data/health", params={"freshness_days": 7})
     assert response.status_code == 200
@@ -160,6 +176,8 @@ def test_frontend_is_served(data_dir: Path):
         assert 'id="command-palette"' in index.text
         assert 'id="watchlist-stats"' in index.text
         assert 'id="detail-company"' in index.text
+        assert 'id="intel-regime"' in index.text
+        assert 'id="intel-sector-meta"' in index.text
 
         script = test_client.get("/app.js")
         assert script.status_code == 200

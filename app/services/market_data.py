@@ -21,6 +21,7 @@ import pandas as pd
 
 from app.core.logging import get_logger
 from ml.features.quant import FEATURE_COLUMNS, FEATURE_VERSION, compute_features
+from ml.market.intelligence import compute_market_intelligence
 from ml.metadata.master import (
     DEFAULT_INSTRUMENT_PATH,
     InstrumentMaster,
@@ -606,6 +607,10 @@ class MarketDataRepository:
             "end": _date_str(history["trading_date"].max()) if len(history) else None,
             "items": items,
         }
+
+    def market_intelligence(self) -> Dict[str, Any]:
+        base = self._require_data()
+        return compute_market_intelligence(base, self.instrument_master)
 
     # ------------------------------------------------------------------
     # Data health (reuses the TASK 106 validator)
