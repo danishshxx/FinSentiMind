@@ -984,6 +984,34 @@ function renderDetail() {
     .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`)
     .join("");
 
+  const quant = detail.quant_features || {};
+  const featureValues = quant.values || {};
+  const featureDefinitions = [
+    ["Return 5D", "return_5d", "pct"],
+    ["Return 20D", "return_20d", "pct"],
+    ["SMA 20", "sma_20", "price"],
+    ["SMA 50", "sma_50", "price"],
+    ["EMA 20", "ema_20", "price"],
+    ["RSI 14", "rsi_14", "number"],
+    ["Volatility 20", "volatility_20", "pct"],
+    ["ATR 14", "atr_14", "price"],
+    ["Rel. volume 20", "relative_volume_20", "ratio"],
+  ];
+  const formatFeature = (value, kind) => {
+    if (isMissing(value)) return '<span class="muted">NULL</span>';
+    if (kind === "pct") return fmtPct(value, 2, true);
+    if (kind === "price") return fmtPrice(value);
+    if (kind === "ratio") return `${Number(value).toFixed(2)}x`;
+    return Number(value).toFixed(2);
+  };
+  $("#feature-version").textContent = quant.version
+    ? `${quant.version} ? ${fmtDate(quant.as_of)}`
+    : "Tidak tersedia";
+  $("#detail-features").innerHTML = featureDefinitions
+    .map(([label, key, kind]) => `<dt>${label}</dt><dd>${formatFeature(featureValues[key], kind)}</dd>`)
+    .join("");
+  $("#feature-note").textContent = quant.note || "Fitur kuantitatif tidak tersedia.";
+
   renderChartForRange();
   renderSentimentHistory(detail.sentiment_history);
   renderRecentSessions(detail.recent_sessions);

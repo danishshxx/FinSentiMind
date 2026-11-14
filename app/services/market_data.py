@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import pandas as pd
 
 from app.core.logging import get_logger
+from ml.features.quant import FEATURE_COLUMNS, FEATURE_VERSION, compute_features
 from ml.metadata.master import (
     DEFAULT_INSTRUMENT_PATH,
     InstrumentMaster,
@@ -512,10 +513,27 @@ class MarketDataRepository:
 
         recent_cols = [c for c in STOCK_COLUMNS if c in history.columns]
         recent = history[recent_cols].tail(5).iloc[::-1]
+        feature_frame = compute_features(history)
+        latest_features = feature_frame.iloc[-1] if len(feature_frame) else None
+        feature_values = {
+            column: (_opt_float(latest_features[column]) if latest_features is not None else None)
+            for column in FEATURE_COLUMNS
+        }
+        feature_missing = [column for column, value in feature_values.items() if value is None]
         return {
             "as_of": self.latest_date(),
             "ticker": symbol,
             "latest": _jsonable(_stock_item(latest, symbol)),
+            "quant_features": {
+                "version": FEATURE_VERSION,
+                "as_of": _date_str(latest["trading_date"]),
+                "values": feature_values,
+                "missing": feature_missing,
+                "note": (
+                    "Rolling features use only data up to the row date; warm-up periods "
+                    "remain NULL. Price assumptions follow prices_clean.parquet."
+                ),
+            },
             "instrument": (
                 self.instrument_master.get(symbol).to_dict()
                 if self.instrument_master.get(symbol)

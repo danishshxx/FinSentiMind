@@ -133,6 +133,10 @@ def test_stock_detail_and_explorer_expose_metadata_fields(client: TestClient):
     instrument = detail.json()["instrument"]
     assert instrument["metadata_status"] == "unavailable"
     assert instrument["company_name"] is None
+    quant = detail.json()["quant_features"]
+    assert quant["version"] == "quant_features_v1"
+    assert "return_5d" in quant["values"]
+    assert quant["missing"]
 
     listing = client.get("/api/stocks", params={"search": "AAA"}).json()
     item = listing["items"][0]
