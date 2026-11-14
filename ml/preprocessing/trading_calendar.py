@@ -8,13 +8,14 @@ from typing import Optional
 import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
+from ml.preprocessing.dataset_store import resolve_active_dataset_dir
 
 
 logger = get_logger(__name__)
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INPUT = _PROJECT_ROOT / "ml" / "data" / "prices_clean.parquet"
+DEFAULT_INPUT = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data") / "prices_clean.parquet"
 DEFAULT_OUTPUT = _PROJECT_ROOT / "ml" / "data" / "trading_calendar.parquet"
 
 DEFAULT_THRESHOLD = 0.9
@@ -139,11 +140,16 @@ def load_calendar(path: Path = DEFAULT_OUTPUT) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def get_trading_dates(path: Path = DEFAULT_OUTPUT) -> set[date]:
+def get_trading_dates(path: Optional[Path] = None) -> set[date]:
     """
     Return set of trading dates from saved calendar. Convenience for
     time_alignment callers needing O(1) lookup.
+
+    When ``path`` is omitted, the active published generation is used if one
+    exists; otherwise this falls back to the legacy flat dataset directory.
     """
+    if path is None:
+        path = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data") / "trading_calendar.parquet"
     cal = load_calendar(path)
     return set(cal.loc[cal["is_trading_day"], "date"])
 

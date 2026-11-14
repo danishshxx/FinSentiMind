@@ -9,7 +9,7 @@ from app.services.sentiment_service import analyze_text
 logger = get_logger(__name__)
 
 
-def run_sentiment_analysis() -> None:
+def run_sentiment_analysis(strict: bool = False) -> None:
     """Analyze pending articles and update sentiment columns."""
     supabase = get_supabase_client()
 
@@ -22,6 +22,8 @@ def run_sentiment_analysis() -> None:
         )
     except Exception:
         logger.error("Failed to fetch pending articles", exc_info=True)
+        if strict:
+            raise
         return
 
     articles: List[Dict[str, Any]] = (
@@ -71,6 +73,10 @@ def run_sentiment_analysis() -> None:
         success_count,
         failure_count,
     )
+    if strict and failure_count:
+        raise RuntimeError(
+            f"Sentiment processing failed for {failure_count} article(s)."
+        )
 
 
 if __name__ == "__main__":

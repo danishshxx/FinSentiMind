@@ -23,6 +23,7 @@ Prinsip utama:
 | Historical OHLCV Chart | Ada | Candlestick + volume, rentang 1M/3M/6M/1Y/All |
 | Watchlist | Ada | Disimpan di `localStorage` browser |
 | Data Health | Ada | Memakai ulang validator TASK 106 |
+| Safe dataset refresh | Ada | Staging, validasi, generation berversi, rollback |
 | Read-only API | Ada | FastAPI di bawah `/api` |
 | Frontend/backend integration | Ada | Frontend statis disajikan oleh FastAPI |
 
@@ -239,7 +240,45 @@ endpoint data akan menghasilkan HTTP 405.
 
 ---
 
-## 8. Menjalankan Validator Secara Manual
+## 8. Refresh Dataset yang Aman
+
+Workflow produksi TASK 107 memakai staging dan generation berversi. Detail
+lengkap ada di `docs/refresh-workflow.md`.
+
+```powershell
+# Full refresh + publish (butuh kredensial Supabase dan provider)
+python -m ml.preprocessing.refresh_pipeline
+
+# Validasi mode tanpa menulis provider / tanpa publish
+python -m ml.preprocessing.refresh_pipeline --dry-run
+
+# Validasi dataset aktif saja
+python -m ml.preprocessing.refresh_pipeline --validate-only
+
+# Inspeksi dan rollback generation
+python -m ml.preprocessing.refresh_pipeline --list-generations
+python -m ml.preprocessing.refresh_pipeline --rollback <run_id>
+```
+
+Perilaku penting:
+
+- Dataset aktif tidak berubah sampai semua stage dan validasi TASK 106 lulus.
+- Artefak ditulis ke `ml/data/staging/<run_id>/`, lalu dipindahkan ke
+  `ml/data/generations/<run_id>/`.
+- `ml/data/active.json` adalah pointer tunggal yang diganti secara atomik.
+- Generation lama tetap tersedia untuk rollback.
+- `refreshed_at` adalah waktu publish; `data_as_of` adalah tanggal pasar
+  terakhir. Keduanya berbeda dan tidak boleh dicampur.
+- Report mesin: `ml/reports/refresh_<run_id>.json`, `refresh_latest.json`,
+  `refresh_last_success.json`.
+- Exit code: `0` sukses, `1` gagal, `2` config error, `3` lock, `4` publish
+  gagal.
+- Restart uvicorn setelah publish agar terminal memuat generation baru.
+
+Legacy `python -m ml.preprocessing.refresh_all` tidak lagi menjadi jalur
+publishing yang aman; tetap ada hanya untuk kompatibilitas.
+
+## 9. Menjalankan Validator Secara Manual
 
 Data Health memakai validator yang sama. Untuk membuat laporan Markdown:
 
@@ -262,7 +301,7 @@ strukturalnya PASS.
 
 ---
 
-## 9. Testing
+## 10. Testing
 
 Jalankan seluruh test:
 
@@ -272,8 +311,10 @@ python -m pytest -q
 
 Hasil verifikasi MVP 001 + TASK 112:
 
-- `334 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
+- `360 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
 - 14 test baru untuk repository dan API MVP.
+- Test TASK 107 mencakup staging/publish, rollback, kegagalan tiap stage,
+  lock concurrency, idempotensi, metadata freshness, dan strict mode ingestion.
 - Test frontend statis memastikan `index.html`, `app.js`, dan `styles.css`
   disajikan dengan benar, termasuk Market Monitor dan command palette.
 
@@ -292,6 +333,14 @@ Verifikasi browser manual (Chrome headless + CDP) yang dilakukan:
   horizontal overflow halaman.
 - Tidak ada error JavaScript di console browser.
 
+Verifikasi TASK 107:
+
+- `python -m ml.preprocessing.refresh_pipeline --validate-only` dijalankan pada
+  dataset lokal aktif dan lulus.
+- `--list-generations` mengembalikan daftar generation yang tersedia.
+- Full refresh dengan provider eksternal tidak dijalankan otomatis dari test
+  suite; workflow diuji dengan handler mock di temporary directory.
+
 ### Screenshot
 
 Screenshot hasil verifikasi disimpan di `docs/screenshots/task-112/`:
@@ -308,7 +357,7 @@ Screenshot hasil verifikasi disimpan di `docs/screenshots/task-112/`:
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Gejala | Penyebab | Solusi |
 |---|---|---|
@@ -321,7 +370,7 @@ Screenshot hasil verifikasi disimpan di `docs/screenshots/task-112/`:
 
 ---
 
-## 11. Batasan MVP
+## 12. Batasan MVP
 
 - Universe hanya 30 ticker yang ada di dataset, bukan seluruh bursa.
 - Data berhenti di `2026-10-09`; terminal tidak melakukan refresh live.
@@ -335,7 +384,7 @@ Screenshot hasil verifikasi disimpan di `docs/screenshots/task-112/`:
 
 ---
 
-## 12. Catatan Git
+## 13. Catatan Git
 
 - Fitur MVP berada di branch `feat/mvp-001-terminal`.
 - Jangan merge ke `main` tanpa persetujuan project owner.

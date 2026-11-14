@@ -48,6 +48,7 @@ import numpy as np
 import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
+from ml.preprocessing.dataset_store import resolve_active_dataset_dir
 
 
 logger = get_logger(__name__)
@@ -101,8 +102,9 @@ MATCHED_RATIO_COLUMNS: List[str] = [
 ]
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_PRICES_PATH = _PROJECT_ROOT / "ml" / "data" / "prices_clean.parquet"
-DEFAULT_SENTIMENT_PATH = _PROJECT_ROOT / "ml" / "data" / "daily_sentiment.parquet"
+_ACTIVE_DATA_DIR = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data")
+DEFAULT_PRICES_PATH = _ACTIVE_DATA_DIR / "prices_clean.parquet"
+DEFAULT_SENTIMENT_PATH = _ACTIVE_DATA_DIR / "daily_sentiment.parquet"
 DEFAULT_OUTPUT_PATH = _PROJECT_ROOT / "ml" / "data" / "base_dataset.parquet"
 
 

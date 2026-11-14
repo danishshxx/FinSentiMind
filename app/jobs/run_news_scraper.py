@@ -14,7 +14,7 @@ from app.scraper.sources.telegram import TelegramScraper
 logger = get_logger(__name__)
 
 
-async def run_telegram_pipeline() -> List[NewsArticle]:
+async def run_telegram_pipeline(strict: bool = False) -> List[NewsArticle]:
     """Optional Telegram ingestion. Returns [] if not configured."""
     scraper = TelegramScraper()
     if not scraper.is_configured():
@@ -24,10 +24,12 @@ async def run_telegram_pipeline() -> List[NewsArticle]:
         return await scraper.fetch_articles(ticker=None, limit_per_channel=50)
     except Exception:
         logger.error("Telegram pipeline failed", exc_info=True)
+        if strict:
+            raise
         return []
 
 
-def run_stockbit_pipeline(watch_tickers: List[str]) -> List[NewsArticle]:
+def run_stockbit_pipeline(watch_tickers: List[str], strict: bool = False) -> List[NewsArticle]:
     """Best-effort Stockbit ingestion. Returns [] if not configured."""
     scraper = StockbitScraper()
     if not scraper.is_configured():
@@ -39,20 +41,24 @@ def run_stockbit_pipeline(watch_tickers: List[str]) -> List[NewsArticle]:
             articles.extend(scraper.fetch_articles(ticker=ticker, limit=30))
         except Exception:
             logger.error("Stockbit failed for %s", ticker, exc_info=True)
+            if strict:
+                raise
             continue
     return articles
 
 
-def run_rss_pipeline() -> List[NewsArticle]:
+def run_rss_pipeline(strict: bool = False) -> List[NewsArticle]:
     """RSS-first ingestion. Ticker tagging dilakukan di orchestrator."""
     try:
         return RSSNewsScraper().fetch_articles()
     except Exception:
         logger.error("RSS pipeline failed", exc_info=True)
+        if strict:
+            raise
         return []
 
 
-def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
+def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]], strict: bool = False) -> None:
     """Insert (article, ticker) pairs after dedup by content_hash."""
     if not tagged:
         logger.info("No ticker-matched articles to insert.")
@@ -74,6 +80,8 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
                 existing = {r["content_hash"] for r in resp.data}
         except Exception:
             logger.error("Dedup query failed; proceeding without dedup", exc_info=True)
+            if strict:
+                raise
 
     seen_in_batch: set[str] = set()
     inserted = 0
@@ -102,6 +110,8 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
             logger.error(
                 "Insert failed for '%s...'", article.title[:60], exc_info=True
             )
+            if strict:
+                raise
 
     logger.info(
         "Pipeline summary — tagged=%d duplicates=%d inserted=%d",
@@ -111,13 +121,13 @@ def _dedup_and_insert(tagged: List[tuple[NewsArticle, str]]) -> None:
     )
 
 
-async def run_news_pipeline_async() -> None:
+async def run_news_pipeline_async(strict: bool = False) -> None:
     """Async orchestrator: fetch all sources → tag → dedup → insert."""
     watch_tickers = list(WATCH_TICKERS)
 
-    rss_task = asyncio.to_thread(run_rss_pipeline)
-    telegram_task = run_telegram_pipeline()
-    stockbit_task = asyncio.to_thread(run_stockbit_pipeline, watch_tickers)
+    rss_task = asyncio.to_thread(run_rss_pipeline, strict)
+    telegram_task = run_telegram_pipeline(strict=strict)
+    stockbit_task = asyncio.to_thread(run_stockbit_pipeline, watch_tickers, strict)
 
     rss_articles, telegram_articles, stockbit_articles = await asyncio.gather(
         rss_task, telegram_task, stockbit_task, return_exceptions=False
@@ -140,12 +150,16 @@ async def run_news_pipeline_async() -> None:
         tagged.append((article, tickers[0]))
 
     logger.info("Matched: %d | Unmatched: %d", len(tagged), unmatched)
-    _dedup_and_insert(tagged)
+    _dedup_and_insert(tagged, strict=strict)
 
 
-def run_news_pipeline() -> None:
-    """Sync wrapper for schedulers (cron, Task Scheduler)."""
-    asyncio.run(run_news_pipeline_async())
+def run_news_pipeline(strict: bool = False) -> None:
+    """Sync wrapper for schedulers (cron, Task Scheduler).
+
+    ``strict=True`` is used by the TASK 107 refresh workflow: provider or
+    insert failures propagate so a failed stage cannot be published.
+    """
+    asyncio.run(run_news_pipeline_async(strict=strict))
 
 
 if __name__ == "__main__":

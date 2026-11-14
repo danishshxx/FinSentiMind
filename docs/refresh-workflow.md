@@ -1,147 +1,272 @@
-## Exit Codes
+# FinSentiMind — Safe Dataset Refresh & Publishing (TASK 107)
 
-| Code | Status | Meaning |
+Dokumen ini menggantikan workflow lama yang menulis langsung ke
+`ml/data/*.parquet`. Refresh produksi sekarang memakai staging, validasi penuh,
+dan publikasi generation berversi.
+
+## 1. Prinsip
+
+- Dataset aktif tidak disentuh selama refresh.
+- Semua artefak ditulis ke `ml/data/staging/<run_id>/`.
+- Publikasi hanya terjadi jika semua stage wajib berhasil dan validator TASK 106
+  tidak menghasilkan FAIL.
+- Generation lama tetap ada dan bisa dijadikan target rollback.
+- `refreshed_at` (kapan file/generation dibuat) berbeda dari `data_as_of`
+  (tanggal data pasar terakhir).
+- Tidak ada data OHLCV, sentimen, atau prediksi yang difabrikasi.
+
+## 2. Arsitektur Pipeline yang Dipakai
+
+Sumber data eksternal tetap sama:
+
+- **Supabase** untuk `harga_saham` dan `berita_saham`.
+- **yfinance** melalui backfill untuk memperbarui harga.
+- **RSS / Telegram / Stockbit** untuk berita (opsional bila tidak dikonfigurasi).
+- Sentiment service lokal untuk memberi label/skor berita.
+
+Stage TASK 107 memakai modul yang sudah ada:
+
+| # | Stage | Modul / fungsi |
 |---|---|---|
-| 0 | SUCCESS | All requested steps + derived chain succeeded |
-| 1 | PARTIAL | Source step failed; derived rebuilt from existing data (stale but consistent) |
-| 2 | FAILED | Derived chain failed; artifacts inconsistent — do not use downstream |
+| 1 | Price ingestion | `run_backfill()` |
+| 2 | Price normalization | `load_prices_clean()` |
+| 3 | Quality gate | `build_report()` + `save_report()` |
+| 4 | Trading calendar | `derive_trading_calendar()` + `save_calendar()` |
+| 5 | News ingestion | `run_news_pipeline(strict=True)` |
+| 6 | Sentiment processing | `run_sentiment_analysis(strict=True)` |
+| 7 | Daily sentiment | `build_daily_sentiment_dataset(calendar_path=...)` |
+| 8 | Base dataset | `run_build()` |
+| 9 | Full validation | `run_all_checks()` TASK 106 |
+| 10 | Publication | `publish_generation()` |
+| 11 | Report | `refresh_<run_id>.json` |
 
-## Partial Failure Semantics
+Tidak ada provider pasar baru dan tidak ada duplikasi logika cleaning,
+quality gate, kalender, sentimen, atau join base dataset.
 
-The derived chain (`load_prices` → `trading_calendar` → `daily_sentiment`)
-is **sequential, not transactional**. Each step writes its artifact
-independently. There is no rollback.
+## 3. Layout Dataset
 
-**Consequences on failure:**
+```text
+ml/data/
+  active.json                         # pointer aktif, ditulis atomik
+  refresh.lock                        # lock single-instance (ignored)
+  generations/
+    <run_id>/
+      prices_clean.parquet
+      daily_sentiment.parquet
+      trading_calendar.parquet
+      base_dataset.parquet
+      generation.json                 # checksum + metadata
+  staging/
+    <run_id>/                         # sisa run gagal / dry-run
+  *.parquet                           # fallback legacy (jika belum ada manifest)
+```
 
-- If step 4 (`trading_calendar`) fails after step 3 (`load_prices`)
-  succeeded, `prices_clean.parquet` may be **fresh** while
-  `trading_calendar.parquet` and `daily_sentiment.parquet` remain **stale**.
-- Exit code `2` (FAILED) signals this inconsistent state.
-- The workflow **must be rerun successfully** before any downstream use.
-- Do not consume derived artifacts after a failed run without
-  re-executing the chain.
+`active.json` berisi `run_id`, `generation`, `published_at`, `refreshed_at`,
+`data_as_of`, dan checksum SHA-256 setiap artefak.
 
-**Exit code `1` (PARTIAL)** means the derived chain completed
-successfully, but at least one requested source step (news or
-backfill) failed. Derived artifacts are consistent **with each other**
-but may be stale relative to the failed source. Investigate and rerun
-before relying on freshness.
+### Kenapa generation + pointer?
 
-**Exit code `0` (SUCCESS)** is the only status that guarantees the
-requested work completed end-to-end.
+- Satu generation bersifat immutable setelah publish; reader tidak melihat
+  campuran file dari dua refresh.
+- Pergantian aktif hanya satu operasi `os.replace` pada `active.json`.
+- **Multi-file atomicity tidak diklaim.** Yang atomik adalah switch pointer.
+  Kalau proses mati sebelum pointer berubah, generation baru menjadi orphan dan
+  generation lama tetap aktif.
 
-## CI/CD Integration
+## 4. Menjalankan Refresh
+
+### Full refresh + publish
 
 ```powershell
-python -m ml.preprocessing.refresh_all
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "Refresh not fully successful (exit=$LASTEXITCODE)"
-    exit $LASTEXITCODE
-}
-text
+python -m ml.preprocessing.refresh_pipeline
+```
 
----
+Status sukses: `SUCCESS`, exit code `0`.
 
-## New Tests
+### Dry-run (tanpa menulis provider, tanpa publish)
 
-### `tests/test_daily_sentiment.py` — 6 new tests (append)
+```powershell
+python -m ml.preprocessing.refresh_pipeline --dry-run
+```
 
-```python
-# ---------------------------------------------------------------------------
-# Review patch — availability_quality strict rule
-# ---------------------------------------------------------------------------
+Stage ingestion ditandai `skipped`; derived chain tetap dibangun dari kondisi
+Supabase saat ini ke staging. Tidak ada perubahan `active.json`.
 
-def test_quality_zero_delta_is_live():
-    df = _df([_row(
-        "BBCA",
-        published="2025-01-06T10:00:00+07:00",
-        scraped="2025-01-06T10:00:00+07:00",  # zero delta
-    )])
-    df = calculate_effective_available_at(df, JKT)
-    df = classify_availability_quality(df, threshold_days=7)
-    assert df["availability_quality"].iloc[0] == "live"
+### Validation-only
 
+```powershell
+python -m ml.preprocessing.refresh_pipeline --validate-only
+```
 
-def test_quality_exactly_threshold_is_live():
-    df = _df([_row(
-        "BBCA",
-        published="2025-01-01T10:00:00+07:00",
-        scraped="2025-01-08T10:00:00+07:00",  # exactly 7 days
-    )])
-    df = calculate_effective_available_at(df, JKT)
-    df = classify_availability_quality(df, threshold_days=7)
-    assert df["availability_quality"].iloc[0] == "live"
+Tidak menjalankan refresh. Hanya memvalidasi dataset aktif dengan TASK 106.
+Exit `0` jika struktur PASS; `1` jika FAIL.
 
+### Opsi lain
 
-def test_quality_above_threshold_is_reconstructed():
-    df = _df([_row(
-        "BBCA",
-        published="2025-01-01T10:00:00+07:00",
-        scraped="2025-01-09T10:00:00+07:00",  # 8 days
-    )])
-    df = calculate_effective_available_at(df, JKT)
-    df = classify_availability_quality(df, threshold_days=7)
-    assert df["availability_quality"].iloc[0] == "reconstructed"
+```powershell
+python -m ml.preprocessing.refresh_pipeline --data-root ml/data --reports-dir ml/reports
+python -m ml.preprocessing.refresh_pipeline --run-id manual_20261114 --retries 2 --retry-backoff 2
+python -m ml.preprocessing.refresh_pipeline --freshness-threshold-days 7
+python -m ml.preprocessing.refresh_pipeline --lock-timeout 5
+```
 
+### Melihat generation
 
-def test_quality_negative_delta_is_reconstructed(caplog):
-    """Anomaly: scraped before published -> reconstructed + warning."""
-    df = _df([_row(
-        "BBCA",
-        published="2025-01-06T10:00:00+07:00",
-        scraped="2025-01-05T10:00:00+07:00",  # 1 day BEFORE published
-    )])
-    df = calculate_effective_available_at(df, JKT)
-    with caplog.at_level("WARNING"):
-        df = classify_availability_quality(df, threshold_days=7)
-    assert df["availability_quality"].iloc[0] == "reconstructed"
-    assert any("scraped_at < published_at" in r.message for r in caplog.records)
+```powershell
+python -m ml.preprocessing.refresh_pipeline --list-generations
+```
 
+### Rollback
 
-def test_quality_custom_threshold_3_days():
-    # delta = 4 days; with threshold=7 -> live, with threshold=3 -> reconstructed
-    df = _df([_row(
-        "BBCA",
-        published="2025-01-01T10:00:00+07:00",
-        scraped="2025-01-05T10:00:00+07:00",  # 4 days
-    )])
-    df = calculate_effective_available_at(df, JKT)
-    assert classify_availability_quality(df.copy(), threshold_days=7)["availability_quality"].iloc[0] == "live"
-    assert classify_availability_quality(df.copy(), threshold_days=3)["availability_quality"].iloc[0] == "reconstructed"
+```powershell
+python -m ml.preprocessing.refresh_pipeline --rollback <run_id>
+```
 
+Rollback memverifikasi file wajib dan checksum generation target sebelum
+mengubah `active.json`. File generation itu sendiri tidak diubah.
 
-def test_audit_logs_when_all_valid(caplog):
-    """When all rows valid, audit logs zero-exclusion info message."""
-    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
-        mock_fetch.return_value = [
-            _row("BBCA", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
-            _row("BBRI", "2025-01-06T11:00:00+07:00", "2025-01-06T11:05:00+07:00"),
-        ]
-        from ml.preprocessing.daily_sentiment import load_news
-        with caplog.at_level("INFO"):
-            df = load_news()
-        assert len(df) == 2
-        assert any("News audit" in r.message and "all valid" in r.message
-                   for r in caplog.records)
+## 5. Exit Codes
 
+| Code | Status | Arti |
+|---|---|---|
+| 0 | SUCCESS / DRY_RUN / VALIDATION_ONLY | Workflow selesai sesuai mode |
+| 1 | FAILED | Stage/validasi gagal; dataset aktif tidak berubah |
+| 2 | CONFIG_ERROR | Konfigurasi/run_id/staging tidak valid |
+| 3 | LOCKED | Refresh lain masih berjalan |
+| 4 | FAILED | Publikasi gagal; dataset aktif tetap generation sebelumnya |
 
-def test_audit_logs_exclusion_counts(caplog):
-    """Verify load_news logs exclusion counts when rows are dropped."""
-    with patch("ml.preprocessing.daily_sentiment.fetch_all") as mock_fetch:
-        mock_fetch.return_value = [
-            _row("BBCA", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
-            {"ticker": None, "sentiment_label": "POSITIVE", "sentiment_score": 1.0,
-             "published_at": "2025-01-06T10:00:00+07:00", "scraped_at": "2025-01-06T10:05:00+07:00"},
-            {"ticker": "BBRI", "sentiment_label": None, "sentiment_score": 1.0,
-             "published_at": "2025-01-06T10:00:00+07:00", "scraped_at": "2025-01-06T10:05:00+07:00"},
-        ]
-        from ml.preprocessing.daily_sentiment import load_news
-        with caplog.at_level("INFO"):
-            df = load_news()
-        assert len(df) == 1
-        assert any(
-            "excluded=2" in r.message and "missing_ticker=1" in r.message
-            and "missing_label=1" in r.message
-            for r in caplog.records
-        )
+## 6. Perilaku Saat Stage Gagal
+
+Jika salah satu stage gagal:
+
+1. Stage dicatat sebagai `failed` beserta pesan error dan attempt count.
+2. Stage berikutnya dicatat `skipped`.
+3. Publikasi tidak dijalankan.
+4. `active.json` dan generation sebelumnya tidak disentuh.
+5. `refresh_<run_id>.json` tetap ditulis ke `ml/reports/`.
+6. `staging/<run_id>/` dipertahankan untuk inspeksi.
+
+Contoh kegagalan:
+
+- Backfill punya ticker error → `price_ingestion` FAILED.
+- Provider berita error → `news_ingestion` FAILED (strict mode).
+- Sebagian artikel gagal dianalisis → `sentiment_processing` FAILED.
+- Quality gate menemukan duplikat/OHLC tidak valid → FAILED.
+- Base dataset kosong → FAILED.
+- Validator TASK 106 menghasilkan FAIL → FAILED.
+- `os.replace`/pointer gagal → publication FAILED; generation lama aktif.
+
+Freshness WARN dari validator **tidak** memblokir publikasi. WARN itu tetap
+dilaporkan sebagai `age_days` dan `latest_trading_date`; data lama tidak
+dianggap baru hanya karena file ditulis ulang.
+
+## 7. Metadata Refresh
+
+Lokasi:
+
+```text
+ml/reports/refresh_<run_id>.json
+ml/reports/refresh_latest.json        # run terakhir, termasuk gagal
+ml/reports/refresh_last_success.json  # hanya run SUCCESS
+ml/reports/quality_gate_<run_id>.md
+ml/reports/validation_<run_id>.md
+```
+
+Field penting:
+
+- `run_id`
+- `started_at`, `completed_at`
+- `status`
+- `refreshed_at` — waktu generation dipublikasikan; `null` jika gagal/dry-run
+- `data_as_of` — tanggal data pasar terakhir di base dataset
+- `stage_statuses` — status, attempt, durasi, error per stage
+- `price_rows`, `sentiment_rows`, `base_dataset_rows`, `ticker_count`
+- `latest_market_data_date`, `latest_sentiment_date`
+- `validation` — ringkasan PASS/WARN/INFO/FAIL dan freshness
+- `failure_reason`
+- `generation`, `previous_generation`
+- `published`
+
+Jangan memakai `refreshed_at` sebagai tanggal pasar. Data dengan
+`data_as_of = 2026-10-09` tetap data 9 Oktober walaupun di-refresh pada 14
+November.
+
+## 8. Reader dan Kompatibilitas Frontend
+
+Pembaca yang sudah diperbarui:
+
+- `app/services/market_data.py`
+- `ml/validation/validate_dataset.py` (default CLI)
+- `ml/preprocessing/quality_gate.py` (default input)
+- `ml/preprocessing/trading_calendar.py` (default aktif)
+- `ml/preprocessing/build_base_dataset.py` (default input)
+- `ml/preprocessing/daily_sentiment.py` (calendar path eksplisit dari staging)
+
+Reader memakai `active.json` jika valid. Jika belum ada manifest atau manifest
+rusak, reader kembali ke file flat `ml/data/*.parquet` agar kompatibel dengan
+dataset lama.
+
+API FastAPI tetap read-only dan kontrak endpoint tidak berubah. Setelah refresh
+baru, restart proses uvicorn agar `MarketDataRepository` memuat generation baru
+(atau panggil `reload()` dari kode). Data Health akan menampilkan file generation
+aktif dan freshness aktual.
+
+## 9. Lock, Retry, dan Interupsi
+
+- **Lock**: `ml/data/refresh.lock`, file lock OS + guard thread. Proses kedua
+  mendapat exit code `3`.
+- **Retry**: hanya stage ingestion yang retryable; jumlah dibatasi `--retries`
+  (default 1 retry) dan backoff terbatas.
+- **Interupsi**: staging boleh tertinggal; generation aktif tidak berubah.
+  Jalankan refresh baru dengan `run_id` baru setelah inspeksi.
+- Tidak ada retry tanpa batas.
+- Lock otomatis dilepas oleh OS saat proses berhenti.
+
+## 10. Recovery dan Inspeksi
+
+1. Baca `ml/reports/refresh_latest.json` atau report run tertentu.
+2. Periksa `stage_statuses` dan `failure_reason`.
+3. Periksa `ml/data/staging/<run_id>/` bila run gagal.
+4. Lihat generation dengan `--list-generations`.
+5. Jika generation lama masih valid dan ingin diaktifkan:
+
+```powershell
+python -m ml.preprocessing.refresh_pipeline --rollback <run_id>
+```
+
+6. Jika `active.json` rusak, reader otomatis fallback ke file legacy; perbaiki
+   pointer secara manual hanya setelah memverifikasi generation.
+
+## 11. Batasan Provider Eksternal
+
+- yfinance dapat rate-limit, mengembalikan data kosong, atau berubah format.
+- Supabase membutuhkan `SUPABASE_URL` dan `SUPABASE_KEY`; tanpa kredensial stage
+  ingestion gagal dengan pesan jelas.
+- Telegram/Stockbit opsional; jika tidak dikonfigurasi, tidak dianggap gagal.
+  Error fetch/insert RSS, Telegram, atau Stockbit yang benar-benar terjadi akan
+  dipropagasikan oleh strict mode sehingga publikasi diblokir.
+- Tidak ada data pengganti ketika provider gagal.
+- Hari libur atau akhir pekan dapat menghasilkan `data_as_of` yang sama; ini
+  bukan kegagalan dan tidak boleh diubah menjadi data baru.
+
+## 12. Testing
+
+```powershell
+python -m pytest -q
+```
+
+Test TASK 107 mencakup:
+
+- refresh sukses dan publikasi generation,
+- kegagalan price/news/sentiment/base/validation/publication,
+- dataset aktif tidak berubah saat gagal,
+- rollback ke generation terverifikasi,
+- idempotensi dan uniqueness,
+- concurrent refresh ditolak,
+- metadata `refreshed_at` vs `data_as_of`,
+- kredensial/provider error,
+- strict mode untuk job berita dan sentimen,
+- test store generation dan resolver API.
+
+Legacy `ml.preprocessing.refresh_all` tetap ada untuk kompatibilitas, tetapi
+**bukan** workflow publishing yang aman. Gunakan `refresh_pipeline`.

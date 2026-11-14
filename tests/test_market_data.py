@@ -12,6 +12,7 @@ from app.services.market_data import (
     MarketDataRepository,
     TickerNotFoundError,
 )
+from ml.preprocessing.dataset_store import publish_generation
 
 
 TICKERS = ["AAA", "BBB", "CCC"]
@@ -205,3 +206,65 @@ def test_missing_dataset_is_reported(tmp_path: Path):
 
     with pytest.raises(DataUnavailableError):
         missing.meta()
+
+
+def test_repository_resolves_active_generation_and_reload(tmp_path: Path):
+    base, prices, sentiment, calendar = _build_frames()
+    generation_dir = tmp_path / "staging" / "gen-1"
+    generation_dir.mkdir(parents=True)
+    newer = pd.concat(
+        [
+            base,
+            pd.DataFrame(
+                [
+                    {
+                        "ticker": "AAA",
+                        "trading_date": pd.Timestamp("2025-01-13"),
+                        "open": 1060.0,
+                        "high": 1070.0,
+                        "low": 1050.0,
+                        "close": 1065.0,
+                        "volume": 2000,
+                        "return_1d": 0.01,
+                        "news_count": 0,
+                        "sentiment_mean": np.nan,
+                        "sentiment_std": np.nan,
+                        "positive_ratio": np.nan,
+                        "negative_ratio": np.nan,
+                        "availability_live_ratio": np.nan,
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    )
+    newer.to_parquet(generation_dir / "base_dataset.parquet", index=False)
+    prices.to_parquet(generation_dir / "prices_clean.parquet", index=False)
+    sentiment.to_parquet(generation_dir / "daily_sentiment.parquet", index=False)
+    calendar.to_parquet(generation_dir / "trading_calendar.parquet", index=False)
+    publish_generation(
+        generation_dir,
+        tmp_path,
+        "gen-1",
+        {"data_as_of": "2025-01-13", "refreshed_at": "2025-01-14T00:00:00+00:00"},
+    )
+
+    repo = MarketDataRepository(tmp_path)
+    assert repo.active_dataset.source == "manifest"
+    assert repo.active_dataset.run_id == "gen-1"
+    assert repo.latest_date() == "2025-01-13"
+    assert repo.meta()["latest_trading_date"] == "2025-01-13"
+
+    generation_two = tmp_path / "staging" / "gen-2"
+    generation_two.mkdir(parents=True)
+    newest = newer.copy()
+    newest.loc[newest.index[-1], "trading_date"] = pd.Timestamp("2025-01-14")
+    newest.to_parquet(generation_two / "base_dataset.parquet", index=False)
+    prices.to_parquet(generation_two / "prices_clean.parquet", index=False)
+    sentiment.to_parquet(generation_two / "daily_sentiment.parquet", index=False)
+    calendar.to_parquet(generation_two / "trading_calendar.parquet", index=False)
+    publish_generation(generation_two, tmp_path, "gen-2", {"data_as_of": "2025-01-14"})
+
+    repo.reload()
+    assert repo.active_dataset.run_id == "gen-2"
+    assert repo.latest_date() == "2025-01-14"

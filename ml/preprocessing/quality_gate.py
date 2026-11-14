@@ -10,6 +10,7 @@ from typing import Dict, List, Literal, Optional, Tuple
 import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
+from ml.preprocessing.dataset_store import resolve_active_dataset_dir
 
 
 logger = get_logger(__name__)
@@ -24,7 +25,7 @@ Severity = Literal["ERROR", "WARNING", "INFO"]
 DEFAULT_SPLIT_THRESHOLD = 0.35  # 35% — flag for manual review
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_INPUT = _PROJECT_ROOT / "ml" / "data" / "prices_clean.parquet"
+DEFAULT_INPUT = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data") / "prices_clean.parquet"
 DEFAULT_REPORT_DIR = _PROJECT_ROOT / "ml" / "reports"
 
 

@@ -70,9 +70,12 @@ RATIO_COLUMNS: List[str] = [
 DEFAULT_FRESHNESS_THRESHOLD_DAYS = 7
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_BASE_PATH = _PROJECT_ROOT / "ml" / "data" / "base_dataset.parquet"
-DEFAULT_PRICES_PATH = _PROJECT_ROOT / "ml" / "data" / "prices_clean.parquet"
-DEFAULT_SENTIMENT_PATH = _PROJECT_ROOT / "ml" / "data" / "daily_sentiment.parquet"
+from ml.preprocessing.dataset_store import resolve_active_dataset_dir
+
+_ACTIVE_DATA_DIR = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data")
+DEFAULT_BASE_PATH = _ACTIVE_DATA_DIR / "base_dataset.parquet"
+DEFAULT_PRICES_PATH = _ACTIVE_DATA_DIR / "prices_clean.parquet"
+DEFAULT_SENTIMENT_PATH = _ACTIVE_DATA_DIR / "daily_sentiment.parquet"
 DEFAULT_REPORT_DIR = _PROJECT_ROOT / "ml" / "reports"
 
 

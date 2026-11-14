@@ -403,6 +403,7 @@ def build_daily_sentiment_dataset(
     tickers: Optional[List[str]] = None,
     save: bool = True,
     output_path: Path = DEFAULT_OUTPUT,
+    calendar_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
     End-to-end: load -> effective_available_at -> quality -> align ->
@@ -414,6 +415,8 @@ def build_daily_sentiment_dataset(
         tickers: Passed to load_news() if news_df is None.
         save: Whether to write Parquet.
         output_path: Parquet destination.
+        calendar_path: Optional trading calendar used for alignment. When
+            omitted, the active published calendar is used.
 
     Returns:
         Aggregated DataFrame.
@@ -438,7 +441,7 @@ def build_daily_sentiment_dataset(
         df, threshold_days=settings.backfill_threshold_days
     )
 
-    trading_dates = get_trading_dates()
+    trading_dates = get_trading_dates(calendar_path)
     logger.info("Loaded %d trading dates from calendar.", len(trading_dates))
 
     df = align_news_to_trading_date(df, trading_dates, cutoff=cutoff, tz=tz)

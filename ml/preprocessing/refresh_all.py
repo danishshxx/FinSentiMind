@@ -1,3 +1,12 @@
+"""Legacy non-publishing refresh utility.
+
+This module predates TASK 107 and still writes derived artifacts directly into
+``ml/data`` without staging or rollback. Use
+``python -m ml.preprocessing.refresh_pipeline`` for the production-safe,
+versioned workflow. The legacy functions remain for backward compatibility and
+existing tests.
+"""
+
 from __future__ import annotations
 
 import argparse

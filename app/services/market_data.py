@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import pandas as pd
 
 from app.core.logging import get_logger
+from ml.preprocessing.dataset_store import resolve_active_dataset
 
 
 logger = get_logger(__name__)
@@ -173,7 +174,11 @@ class MarketDataRepository:
     """Loads the local pipeline artifacts once and serves derived views."""
 
     def __init__(self, data_dir: Optional[Path | str] = None) -> None:
-        self.data_dir = Path(data_dir or os.getenv("FINSENTIMIND_DATA_DIR") or DEFAULT_DATA_DIR)
+        self.data_root = Path(
+            data_dir or os.getenv("FINSENTIMIND_DATA_DIR") or DEFAULT_DATA_DIR
+        )
+        self.active_dataset = resolve_active_dataset(self.data_root)
+        self.data_dir = self.active_dataset.active_dir
         self.base_path = self.data_dir / BASE_FILENAME
         self.prices_path = self.data_dir / PRICES_FILENAME
         self.sentiment_path = self.data_dir / SENTIMENT_FILENAME
@@ -214,13 +219,21 @@ class MarketDataRepository:
             logger.warning(self._load_error)
         else:
             logger.info(
-                "Market data loaded: %d rows, %d tickers, latest %s",
+                "Market data loaded: %d rows, %d tickers, latest %s (source=%s, run_id=%s)",
                 len(self._base),
                 self._base["ticker"].nunique(),
                 self.latest_date(),
+                self.active_dataset.source,
+                self.active_dataset.run_id,
             )
 
     def reload(self) -> None:
+        self.active_dataset = resolve_active_dataset(self.data_root)
+        self.data_dir = self.active_dataset.active_dir
+        self.base_path = self.data_dir / BASE_FILENAME
+        self.prices_path = self.data_dir / PRICES_FILENAME
+        self.sentiment_path = self.data_dir / SENTIMENT_FILENAME
+        self.calendar_path = self.data_dir / CALENDAR_FILENAME
         self._base = pd.DataFrame()
         self._calendar = pd.DataFrame()
         self._load_error = None
