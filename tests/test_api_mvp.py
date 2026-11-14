@@ -119,11 +119,18 @@ def test_frontend_is_served(data_dir: Path):
         assert index.status_code == 200
         assert "FinSentiMind" in index.text
         assert 'id="price-chart"' in index.text
+        assert 'id="monitor-chart"' in index.text
+        assert 'id="command-palette"' in index.text
+        assert 'id="watchlist-stats"' in index.text
 
         script = test_client.get("/app.js")
         assert script.status_code == 200
         assert "renderChart" in script.text
+        assert "renderMonitor" in script.text
+        assert "openPalette" in script.text
 
         styles = test_client.get("/styles.css")
         assert styles.status_code == 200
         assert ".data-table" in styles.text
+        assert ".monitor-top" in styles.text
+        assert ".palette-panel" in styles.text

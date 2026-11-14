@@ -8,6 +8,7 @@ const state = {
   meta: null,
   overview: null,
   stocks: [],
+  allStocks: [],
   watchlist: readWatchlist(),
   health: null,
   healthFilter: "ALL",
@@ -17,6 +18,15 @@ const state = {
   chartRange: "6M",
   explorerRequest: 0,
   previousFocus: null,
+  monitor: {
+    loading: false,
+    loaded: false,
+    error: null,
+    data: null,
+    range: "6M",
+    requestId: 0,
+  },
+  palette: { open: false, index: 0, items: [], previousFocus: null },
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -204,14 +214,30 @@ function toggleWatch(ticker) {
 /* ------------------------------------------------------------------ */
 /* Navigation                                                          */
 /* ------------------------------------------------------------------ */
+const VIEW_LABELS = {
+  overview: "MARKET OVERVIEW",
+  monitor: "MARKET MONITOR",
+  explorer: "STOCK EXPLORER",
+  watchlist: "WATCHLIST",
+  health: "DATA HEALTH",
+};
+
 function activateView(name, updateHash = true) {
-  const valid = ["overview", "explorer", "watchlist", "health"];
+  const valid = ["overview", "monitor", "explorer", "watchlist", "health"];
   const view = valid.includes(name) ? name : "overview";
-  $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
+  $$(".tab").forEach((tab) => {
+    const active = tab.dataset.view === view;
+    tab.classList.toggle("active", active);
+    if (active) tab.setAttribute("aria-current", "page");
+    else tab.removeAttribute("aria-current");
+  });
   $$(".view").forEach((section) => section.classList.toggle("active", section.id === `view-${view}`));
+  const crumb = $("#crumb-view");
+  if (crumb) crumb.textContent = VIEW_LABELS[view] || VIEW_LABELS.overview;
   if (updateHash && location.hash !== `#${view}`) {
     history.replaceState(null, "", `#${view}`);
   }
+  if (view === "monitor") loadMonitor(false);
   if (view === "watchlist") loadWatchlistView();
   if (view === "health") loadHealth(false);
 }
@@ -219,6 +245,16 @@ function activateView(name, updateHash = true) {
 /* ------------------------------------------------------------------ */
 /* Market overview                                                     */
 /* ------------------------------------------------------------------ */
+function daysSince(dateString) {
+  if (!dateString) return null;
+  const parts = String(dateString).slice(0, 10).split("-").map(Number);
+  if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
+  const then = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+  const now = new Date();
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.round((today - then) / 86400000));
+}
+
 function renderMeta() {
   const meta = state.meta;
   if (!meta) return;
@@ -228,11 +264,35 @@ function renderMeta() {
   const apiPill = $("#api-pill");
   apiPill.textContent = `API: ok · ${meta.universe_size} ticker`;
   apiPill.classList.remove("bad");
+
+  const age = daysSince(meta.latest_trading_date);
+  const agePill = $("#data-age-pill");
+  if (agePill) {
+    agePill.textContent = `Age: ${age === null ? "—" : `${age}d`}`;
+    agePill.classList.toggle("stale", age !== null && age > 7);
+    agePill.classList.toggle("fresh", age !== null && age <= 7);
+  }
+  const rail = $("#rail-dataset");
+  if (rail) {
+    rail.textContent = `${meta.latest_trading_date || "—"} · ${meta.universe_size} tickers · ${meta.trading_sessions} sessions`;
+  }
+  const statusDot = $("#rail-status-dot");
+  if (statusDot) statusDot.className = "status-dot pass";
+  const banner = $("#stale-banner");
+  const staleText = $("#stale-text");
+  if (banner && age !== null && age > 7) {
+    banner.hidden = false;
+    if (staleText) {
+      staleText.textContent = `Snapshot historis: data terakhir ${meta.latest_trading_date}, ${age} hari lalu. Bukan data pasar real-time.`;
+    }
+  } else if (banner) {
+    banner.hidden = true;
+  }
 }
 
 function metricCard(label, value, sub, extraClass = "") {
   return `
-    <div class="card">
+    <div class="strip-cell">
       <div class="label">${escapeHtml(label)}</div>
       <div class="value ${extraClass}">${value}</div>
       <div class="sub">${sub}</div>
@@ -286,8 +346,12 @@ function renderOverview() {
     ),
   ].join("");
 
+  $("#overview-asof").textContent = fmtDate(overview.as_of);
   $("#gainers-date").textContent = fmtDate(overview.as_of);
   $("#losers-date").textContent = fmtDate(overview.as_of);
+  $("#breadth-universe").textContent = `${overview.universe_size} / ${overview.latest_session_tickers}`;
+  $("#breadth-sessions").textContent = String(overview.trading_sessions);
+  $("#breadth-volume").textContent = fmtCompact(overview.total_volume);
   $("#gainers-body").innerHTML =
     overview.top_gainers.map((item) => overviewRow(item)).join("") ||
     '<tr><td colspan="5" class="empty">Tidak ada return valid.</td></tr>';
@@ -315,6 +379,393 @@ function renderOverview() {
       )}. Rata-rata sentimen matched: ${fmtSigned(sentiment.avg_sentiment_mean, 3)}.`
     : "Tidak ada baris sentimen matched pada dataset lokal.";
   $("#sentiment-meter").style.width = `${Math.min(100, Number(sentiment.coverage_pct || 0))}%`;
+  $("#sentiment-matched").textContent = `${sentiment.rows_with_news ?? 0} rows`;
+  $("#sentiment-latest").textContent = fmtDate(sentiment.latest_news_date);
+  $("#sentiment-mean").textContent = fmtSigned(sentiment.avg_sentiment_mean, 3);
+}
+
+/* ------------------------------------------------------------------ */
+/* Market monitor                                                      */
+/* ------------------------------------------------------------------ */
+function buildMonitorData(stocks, seriesByTicker) {
+  const tickerCount = stocks.length;
+  const countByDate = new Map();
+  Object.values(seriesByTicker).forEach((items) => {
+    items.forEach((item) => {
+      const date = fmtDate(item.trading_date);
+      countByDate.set(date, (countByDate.get(date) || 0) + 1);
+    });
+  });
+  const allDates = Array.from(countByDate.keys()).sort();
+  const fullDates = allDates.filter((date) => countByDate.get(date) === tickerCount);
+  const startDate = fullDates.length ? fullDates[0] : allDates[0];
+
+  const seriesMaps = new Map();
+  Object.entries(seriesByTicker).forEach(([ticker, items]) => {
+    seriesMaps.set(ticker, new Map(items.map((item) => [fmtDate(item.trading_date), item])));
+  });
+
+  const dates = allDates.filter((date) => date >= startDate);
+  const points = [];
+  let indexLevel = 100;
+  dates.forEach((date, pointIndex) => {
+    const returns = [];
+    let volume = 0;
+    let coverage = 0;
+    seriesMaps.forEach((seriesMap) => {
+      const item = seriesMap.get(date);
+      if (!item) return;
+      coverage += 1;
+      volume += Number(item.volume) || 0;
+      if (!isMissing(item.return_1d)) returns.push(Number(item.return_1d));
+    });
+    const universeReturn = returns.length
+      ? returns.reduce((total, value) => total + value, 0) / returns.length
+      : 0;
+    if (pointIndex > 0) indexLevel *= 1 + universeReturn;
+    points.push({
+      date,
+      index: indexLevel,
+      return_1d: pointIndex === 0 ? null : universeReturn,
+      volume,
+      coverage,
+    });
+  });
+
+  return {
+    points,
+    startDate,
+    latestDate: points.length ? points[points.length - 1].date : null,
+    tickerCount,
+    seriesByTicker,
+    stocks,
+  };
+}
+
+async function loadMonitor(force = false) {
+  const monitor = state.monitor;
+  if (monitor.loading) return;
+  if (monitor.data && !force) {
+    renderMonitor();
+    return;
+  }
+  const requestId = ++monitor.requestId;
+  monitor.loading = true;
+  monitor.error = null;
+  monitor.data = null;
+  const chartHost = $("#monitor-chart");
+  if (chartHost) chartHost.innerHTML = '<div class="empty">Memuat 30 seri OHLCV dari API lokal…</div>';
+  const meta = $("#monitor-chart-meta");
+  if (meta) meta.textContent = "Membangun universe equal-weight dari data lokal…";
+  const strip = $("#monitor-strip");
+  if (strip) {
+    strip.innerHTML = Array.from({ length: 5 }, () => '<div class="strip-cell skeleton"></div>').join("");
+  }
+
+  try {
+    const stocksPayload = await api("/stocks?sort=ticker&order=asc");
+    const stocks = stocksPayload.items;
+    const results = await Promise.allSettled(
+      stocks.map((stock) =>
+        api(`/stocks/${encodeURIComponent(stock.ticker)}/ohlcv?limit=2000`)
+      )
+    );
+    if (requestId !== monitor.requestId) return;
+    const seriesByTicker = {};
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled" && result.value.items.length) {
+        seriesByTicker[stocks[index].ticker] = result.value.items;
+      }
+    });
+    const available = Object.keys(seriesByTicker);
+    if (available.length < 2) {
+      throw new Error("Series historis tidak cukup untuk membangun Market Monitor.");
+    }
+    const usableStocks = stocks.filter((stock) => seriesByTicker[stock.ticker]);
+    monitor.data = buildMonitorData(usableStocks, seriesByTicker);
+    monitor.loaded = true;
+    renderMonitor();
+  } catch (error) {
+    if (requestId !== monitor.requestId) return;
+    monitor.error = error.message;
+    if (chartHost) chartHost.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+    if (meta) meta.textContent = "Gagal memuat series historis";
+    toast(error.message, true);
+  } finally {
+    if (requestId === monitor.requestId) monitor.loading = false;
+  }
+}
+
+function monitorPerformanceRows(data, range) {
+  return data.stocks
+    .map((stock) => {
+      const items = data.seriesByTicker[stock.ticker] || [];
+      const windowItems = filterSeries(items, range);
+      const first = windowItems[0];
+      const last = windowItems[windowItems.length - 1];
+      const periodReturn =
+        first && last && windowItems.length > 1 && Number(first.close) !== 0
+          ? Number(last.close) / Number(first.close) - 1
+          : null;
+      const pctFromSessions = (sessions) => {
+        if (items.length <= sessions) return null;
+        const previous = Number(items[items.length - 1 - sessions].close);
+        const current = Number(items[items.length - 1].close);
+        return previous ? current / previous - 1 : null;
+      };
+      const volumes = windowItems.map((item) => Number(item.volume) || 0);
+      const avgVolume = volumes.length
+        ? volumes.reduce((total, value) => total + value, 0) / volumes.length
+        : null;
+      return {
+        ...stock,
+        period_return: periodReturn,
+        change_5d: pctFromSessions(5),
+        change_20d: pctFromSessions(20),
+        avg_volume: avgVolume,
+        window_sessions: windowItems.length,
+        latest_close: last ? Number(last.close) : stock.close,
+      };
+    })
+    .sort((left, right) => {
+      if (isMissing(left.period_return)) return 1;
+      if (isMissing(right.period_return)) return -1;
+      return Number(right.period_return) - Number(left.period_return);
+    });
+}
+
+function renderMonitor() {
+  const monitor = state.monitor;
+  const data = monitor.data;
+  if (!data) return;
+  const range = monitor.range;
+  const points = filterSeries(data.points, range);
+  const first = points[0];
+  const last = points[points.length - 1];
+  const periodReturn = first && last && first.index ? last.index / first.index - 1 : null;
+  const avgVolume = points.length
+    ? points.reduce((total, point) => total + point.volume, 0) / points.length
+    : null;
+  const rows = monitorPerformanceRows(data, range);
+  const best = rows.find((row) => !isMissing(row.period_return));
+  const worst = rows
+    .slice()
+    .reverse()
+    .find((row) => !isMissing(row.period_return));
+
+  $("#monitor-asof").textContent = fmtDate(data.latestDate);
+  $("#monitor-strip").innerHTML = [
+    metricCard(
+      `Universe return · ${range}`,
+      `<span class="${valueClass(periodReturn)}">${fmtPct(periodReturn)}</span>`,
+      `Equal-weight · ${points.length} sesi`
+    ),
+    metricCard(
+      "Index level",
+      last ? Number(last.index).toFixed(2) : "—",
+      `Base 100 · ${fmtDate(data.startDate)}`
+    ),
+    metricCard(
+      "Sessions",
+      String(points.length),
+      first ? `${first.date} s/d ${last.date}` : "—"
+    ),
+    metricCard(
+      "Avg daily volume",
+      fmtCompact(avgVolume),
+      "Total universe per sesi"
+    ),
+    metricCard(
+      "Session coverage",
+      last ? `${last.coverage}/${data.tickerCount}` : "—",
+      "Ticker dengan candle"
+    ),
+  ].join("");
+
+  const context = {
+    Range: range === "ALL" ? "ALL" : range,
+    "Data window": first && last ? `${first.date} → ${last.date}` : "—",
+    "Index start / end": first && last ? `${Number(first.index).toFixed(2)} → ${Number(last.index).toFixed(2)}` : "—",
+    "Universe return": fmtPct(periodReturn),
+    "Best ticker": best ? `${best.ticker} ${fmtPct(best.period_return)}` : "—",
+    "Worst ticker": worst ? `${worst.ticker} ${fmtPct(worst.period_return)}` : "—",
+    "Avg daily volume": fmtCompact(avgVolume),
+    "Series basis": `${data.tickerCount} ticker · close & volume aktual`,
+  };
+  $("#monitor-context").innerHTML = Object.entries(context)
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`)
+    .join("");
+  $("#monitor-note").textContent =
+    `Index equal-weight dihitung dari rata-rata return harian ticker yang tersedia sejak ${fmtDate(
+      data.startDate
+    )}. Ini bukan IHSG dan bukan data live.`;
+
+  $("#monitor-chart-meta").textContent = first
+    ? `${points.length} sesi · ${first.date} s/d ${last.date} · ${range} · equal-weight`
+    : "Tidak ada sesi pada rentang ini";
+  $$("#monitor-ranges button").forEach((button) =>
+    button.classList.toggle("active", button.dataset.range === range)
+  );
+  renderMonitorChart(points);
+
+  $("#monitor-perf-meta").textContent = `${rows.length} ticker · diurutkan berdasarkan period return (${range})`;
+  $("#monitor-perf-body").innerHTML = rows
+    .map(
+      (row) => `<tr>
+        <td><span class="ticker" data-open="${escapeHtml(row.ticker)}">${escapeHtml(row.ticker)}</span></td>
+        <td class="num">${fmtPrice(row.latest_close)}</td>
+        <td class="num ${valueClass(row.return_1d)}">${fmtPct(row.return_1d)}</td>
+        <td class="num ${valueClass(row.change_5d)}">${fmtPct(row.change_5d)}</td>
+        <td class="num ${valueClass(row.period_return)}">${fmtPct(row.period_return)}</td>
+        <td class="num">${fmtCompact(row.avg_volume)}</td>
+        <td class="num">${row.window_sessions}</td>
+        <td class="num">${newsCell(row.news_count)}</td>
+      </tr>`
+    )
+    .join("") || '<tr><td colspan="8" class="empty">Tidak ada ticker yang bisa ditampilkan.</td></tr>';
+}
+
+function renderMonitorChart(points) {
+  const host = $("#monitor-chart");
+  if (!host) return;
+  host.innerHTML = "";
+  if (!points.length) {
+    host.innerHTML = '<div class="empty">Tidak ada data pada rentang ini.</div>';
+    return;
+  }
+  const width = Math.max(560, host.clientWidth || 900);
+  const height = 390;
+  const margin = { top: 16, right: 18, bottom: 24, left: 62 };
+  const volumeHeight = 64;
+  const gap = 20;
+  const plotWidth = width - margin.left - margin.right;
+  const indexHeight = height - margin.top - margin.bottom - volumeHeight - gap;
+  const volumeTop = margin.top + indexHeight + gap;
+  const values = points.map((point) => point.index);
+  let minValue = Math.min(...values);
+  let maxValue = Math.max(...values);
+  const span = maxValue - minValue || Math.max(1, maxValue * 0.02);
+  minValue -= span * 0.08;
+  maxValue += span * 0.08;
+  const maxVolume = Math.max(1, ...points.map((point) => point.volume));
+  const step = plotWidth / points.length;
+  const xAt = (index) => margin.left + step * (index + 0.5);
+  const yIndex = (value) => margin.top + ((maxValue - value) / (maxValue - minValue)) * indexHeight;
+  const yVolume = (value) => volumeTop + volumeHeight - (value / maxVolume) * volumeHeight;
+
+  const svg = svgNode("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    role: "img",
+    "aria-label": "Market Monitor equal-weight index and universe volume",
+  });
+  const defs = svgNode("defs");
+  const gradient = svgNode("linearGradient", { id: "monitorArea", x1: "0", y1: "0", x2: "0", y2: "1" });
+  gradient.appendChild(svgNode("stop", { offset: "0%", "stop-color": "#5ce1b0", "stop-opacity": "0.18" }));
+  gradient.appendChild(svgNode("stop", { offset: "100%", "stop-color": "#5ce1b0", "stop-opacity": "0" }));
+  defs.appendChild(gradient);
+  svg.appendChild(defs);
+
+  for (let index = 0; index <= 4; index += 1) {
+    const ratio = index / 4;
+    const y = margin.top + ratio * indexHeight;
+    const value = maxValue - ratio * (maxValue - minValue);
+    svg.appendChild(svgNode("line", {
+      x1: margin.left, x2: width - margin.right, y1: y, y2: y,
+      stroke: "#1a2532", "stroke-width": 1,
+    }));
+    const label = svgNode("text", {
+      x: margin.left - 7, y: y + 3.5, "text-anchor": "end",
+      fill: "#687b90", "font-size": 9.5, "font-family": "Cascadia Mono, monospace",
+    });
+    label.textContent = Number(value).toFixed(2);
+    svg.appendChild(label);
+  }
+  for (let index = 0; index <= 2; index += 1) {
+    const y = volumeTop + (index / 2) * volumeHeight;
+    svg.appendChild(svgNode("line", {
+      x1: margin.left, x2: width - margin.right, y1: y, y2: y,
+      stroke: "#16212d", "stroke-width": 1,
+    }));
+  }
+
+  const labelCount = Math.min(6, points.length);
+  for (let index = 0; index < labelCount; index += 1) {
+    const pointIndex = labelCount === 1 ? 0 : Math.round((index / (labelCount - 1)) * (points.length - 1));
+    const label = svgNode("text", {
+      x: Math.min(Math.max(xAt(pointIndex), margin.left), width - margin.right),
+      y: height - 7,
+      "text-anchor": index === 0 ? "start" : index === labelCount - 1 ? "end" : "middle",
+      fill: "#687b90", "font-size": 9.5, "font-family": "Cascadia Mono, monospace",
+    });
+    label.textContent = points[pointIndex].date;
+    svg.appendChild(label);
+  }
+
+  let linePath = "";
+  points.forEach((point, index) => {
+    linePath += `${index === 0 ? "M" : "L"}${xAt(index).toFixed(2)},${yIndex(point.index).toFixed(2)} `;
+  });
+  const areaPath = `${linePath}L${xAt(points.length - 1).toFixed(2)},${(margin.top + indexHeight).toFixed(
+    2
+  )} L${xAt(0).toFixed(2)},${(margin.top + indexHeight).toFixed(2)} Z`;
+  svg.appendChild(svgNode("path", { d: areaPath, fill: "url(#monitorArea)", stroke: "none" }));
+  svg.appendChild(svgNode("path", {
+    d: linePath.trim(), fill: "none", stroke: "#5ce1b0", "stroke-width": 1.4,
+    "stroke-linejoin": "round", "stroke-linecap": "round",
+  }));
+
+  points.forEach((point, index) => {
+    const barColor = Number(point.return_1d) >= 0 ? "#5ce1b0" : "#ff6470";
+    const y = yVolume(point.volume);
+    svg.appendChild(svgNode("rect", {
+      x: xAt(index) - Math.max(1, step * 0.28),
+      y,
+      width: Math.max(1.2, step * 0.56),
+      height: Math.max(0.5, volumeTop + volumeHeight - y),
+      fill: barColor, opacity: 0.28, rx: 0.5,
+    }));
+  });
+
+  const crosshair = svgNode("line", {
+    x1: 0, x2: 0, y1: margin.top, y2: volumeTop + volumeHeight,
+    stroke: "#7f93aa", "stroke-width": 1, "stroke-dasharray": "3 3", opacity: 0,
+  });
+  svg.appendChild(crosshair);
+  host.appendChild(svg);
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
+  host.appendChild(tooltip);
+
+  const hide = () => {
+    crosshair.setAttribute("opacity", "0");
+    tooltip.classList.remove("show");
+  };
+  svg.addEventListener("pointerleave", hide);
+  svg.addEventListener("pointermove", (event) => {
+    const rect = svg.getBoundingClientRect();
+    const relativeX = ((event.clientX - rect.left) / rect.width) * width;
+    let index = Math.floor((relativeX - margin.left) / step);
+    index = Math.max(0, Math.min(points.length - 1, index));
+    const point = points[index];
+    const x = xAt(index);
+    crosshair.setAttribute("x1", x);
+    crosshair.setAttribute("x2", x);
+    crosshair.setAttribute("opacity", "1");
+    tooltip.innerHTML = `
+      <div class="tt-date">${escapeHtml(point.date)}</div>
+      <div class="tt-row"><span>Index</span><span>${Number(point.index).toFixed(2)}</span></div>
+      <div class="tt-row"><span>Universe return</span><span>${fmtPct(point.return_1d)}</span></div>
+      <div class="tt-row"><span>Total volume</span><span>${fmtCompact(point.volume)}</span></div>
+      <div class="tt-row"><span>Coverage</span><span>${point.coverage} ticker</span></div>`;
+    const hostRect = host.getBoundingClientRect();
+    let left = event.clientX - hostRect.left + 16;
+    if (left + 210 > hostRect.width) left = Math.max(6, event.clientX - hostRect.left - 216);
+    let top = event.clientY - hostRect.top - 10;
+    top = Math.max(8, Math.min(hostRect.height - 140, top));
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.classList.add("show");
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -376,9 +827,29 @@ async function loadExplorer() {
 /* ------------------------------------------------------------------ */
 /* Watchlist view                                                      */
 /* ------------------------------------------------------------------ */
+function renderWatchlistStats(items) {
+  const returns = items.map((item) => item.return_1d).filter((value) => !isMissing(value));
+  const average = returns.length ? returns.reduce((total, value) => total + Number(value), 0) / returns.length : null;
+  const advancers = items.filter((item) => !isMissing(item.return_1d) && Number(item.return_1d) > 0).length;
+  const decliners = items.filter((item) => !isMissing(item.return_1d) && Number(item.return_1d) < 0).length;
+  const news = items.reduce((total, item) => total + (Number(item.news_count) || 0), 0);
+  $("#watchlist-stats").innerHTML = [
+    metricCard("Tickers", String(items.length), "localStorage · client-side"),
+    metricCard(
+      "Avg return 1D",
+      `<span class="${valueClass(average)}">${fmtPct(average)}</span>`,
+      "Hanya return yang tersedia"
+    ),
+    metricCard("Breadth", `${advancers} / ${decliners}`, "Naik / turun"),
+    metricCard("News linked", String(news), "Jumlah berita pada snapshot"),
+  ].join("");
+}
+
 async function loadWatchlistView() {
   updateWatchCount();
+  $("#watchlist-summary").textContent = `${state.watchlist.length} ticker · localStorage`;
   if (!state.watchlist.length) {
+    renderWatchlistStats([]);
     $("#watchlist-body").innerHTML =
       '<tr><td colspan="8" class="empty">Watchlist kosong. Tambahkan ticker dari Stock Explorer atau detail saham.</td></tr>';
     return;
@@ -387,6 +858,7 @@ async function loadWatchlistView() {
     const payload = await api(`/stocks?tickers=${encodeURIComponent(state.watchlist.join(","))}`);
     const byTicker = new Map(payload.items.map((item) => [item.ticker, item]));
     const ordered = state.watchlist.map((ticker) => byTicker.get(ticker)).filter(Boolean);
+    renderWatchlistStats(ordered);
     $("#watchlist-body").innerHTML =
       ordered
         .map(
@@ -397,6 +869,7 @@ async function loadWatchlistView() {
         )
         .join("") || '<tr><td colspan="8" class="empty">Ticker watchlist tidak ada di dataset.</td></tr>';
   } catch (error) {
+    renderWatchlistStats([]);
     $("#watchlist-body").innerHTML = `<tr><td colspan="8" class="empty">${escapeHtml(error.message)}</td></tr>`;
   }
 }
@@ -419,8 +892,9 @@ async function openDetail(ticker) {
   $("#detail-volume").textContent = "—";
   $("#detail-news").textContent = "—";
   $("#detail-stats").innerHTML = "";
+  $("#detail-quality").innerHTML = "<dt>Status</dt><dd>Memuat…</dd>";
   $("#price-chart").innerHTML = '<div class="empty">Memuat chart…</div>';
-  $("#detail-sentiment").innerHTML = '<tr><td colspan="7" class="empty">Memuat…</td></tr>';
+  $("#detail-sentiment").innerHTML = '<tr><td colspan="5" class="empty">Memuat…</td></tr>';
   $("#detail-recent").innerHTML = '<tr><td colspan="7" class="empty">Memuat…</td></tr>';
   $("#detail-note").textContent = "";
   state.detail = null;
@@ -494,6 +968,18 @@ function renderDetail() {
     statItem("Hari berita", String(quality.sentiment_days)),
   ].join("");
 
+  const qualityRows = {
+    Coverage: coverage,
+    "Observed / calendar": `${quality.observed_sessions ?? "—"} / ${quality.calendar_sessions ?? "—"}`,
+    "Baris harga": stats.price_rows,
+    "Rentang data": `${fmtDate(stats.first_trading_date)} → ${fmtDate(stats.last_trading_date)}`,
+    "Hari berita": quality.sentiment_days,
+    Sentimen: "NULL ≠ netral",
+  };
+  $("#detail-quality").innerHTML = Object.entries(qualityRows)
+    .map(([key, value]) => `<dt>${escapeHtml(key)}</dt><dd>${escapeHtml(String(value))}</dd>`)
+    .join("");
+
   renderChartForRange();
   renderSentimentHistory(detail.sentiment_history);
   renderRecentSessions(detail.recent_sessions);
@@ -506,7 +992,7 @@ function renderSentimentHistory(rows) {
   $("#sentiment-days").textContent = `${count} hari berita`;
   if (!count) {
     body.innerHTML =
-      '<tr><td colspan="7" class="empty">Tidak ada berita tertaut untuk ticker ini. Sentimen NULL, bukan netral.</td></tr>';
+      '<tr><td colspan="5" class="empty">Tidak ada berita tertaut untuk ticker ini. Sentimen NULL, bukan netral.</td></tr>';
     $("#sentiment-note").textContent =
       "Pipeline menyimpan NULL ketika tidak ada berita. Nilai nol tidak dipakai sebagai pengganti.";
     return;
@@ -519,10 +1005,8 @@ function renderSentimentHistory(rows) {
         <td>${escapeHtml(fmtDate(row.date))}</td>
         <td class="num">${row.news_count}</td>
         <td class="num ${valueClass(row.sentiment_mean)}">${fmtSigned(row.sentiment_mean, 3)}</td>
-        <td class="num">${isMissing(row.sentiment_std) ? "—" : Number(row.sentiment_std).toFixed(3)}</td>
         <td class="num">${fmtPct(row.positive_ratio, 1, false)}</td>
         <td class="num">${fmtPct(row.negative_ratio, 1, false)}</td>
-        <td class="num">${fmtPct(row.availability_live_ratio, 0, false)}</td>
       </tr>`
     )
     .join("");
@@ -549,12 +1033,13 @@ function renderRecentSessions(rows) {
 function filterSeries(items, range) {
   const months = RANGE_MONTHS[range];
   if (!months || !items.length) return items;
-  const last = String(items[items.length - 1].trading_date).slice(0, 10);
+  const dateOf = (item) => fmtDate(item.trading_date || item.date);
+  const last = dateOf(items[items.length - 1]);
   const parts = last.split("-").map(Number);
   const boundary = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
   boundary.setUTCMonth(boundary.getUTCMonth() - months);
   const start = boundary.toISOString().slice(0, 10);
-  return items.filter((item) => String(item.trading_date).slice(0, 10) >= start);
+  return items.filter((item) => dateOf(item) >= start);
 }
 
 function renderChartForRange() {
@@ -896,12 +1381,16 @@ function renderHealth() {
       const status = source.exists
         ? '<span class="badge badge-pass">ADA</span>'
         : '<span class="badge badge-fail">HILANG</span>';
-      return `<tr>
-        <td>${escapeHtml(source.file)}</td>
-        <td>${status}</td>
-        <td class="num">${fmtBytes(source.size_bytes)}</td>
-        <td>${escapeHtml(fmtDateTime(source.modified_utc))}</td>
-      </tr>`;
+      return `<div class="source-row">
+        <div class="source-line">
+          <span class="source-name">${escapeHtml(source.file)}</span>
+          ${status}
+        </div>
+        <div class="source-meta">
+          <span>${fmtBytes(source.size_bytes)}</span>
+          <span>${escapeHtml(fmtDateTime(source.modified_utc))}</span>
+        </div>
+      </div>`;
     })
     .join("");
 
@@ -929,6 +1418,104 @@ function renderHealthChecks() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Command palette                                                     */
+/* ------------------------------------------------------------------ */
+const PALETTE_VIEWS = [
+  { kind: "view", label: "Market Overview", view: "overview", meta: "01" },
+  { kind: "view", label: "Market Monitor", view: "monitor", meta: "02" },
+  { kind: "view", label: "Stock Explorer", view: "explorer", meta: "03" },
+  { kind: "view", label: "Watchlist", view: "watchlist", meta: "04" },
+  { kind: "view", label: "Data Health", view: "health", meta: "05" },
+];
+
+function openPalette() {
+  const palette = $("#command-palette");
+  if (!palette) return;
+  state.palette.previousFocus = document.activeElement;
+  state.palette.open = true;
+  state.palette.index = 0;
+  palette.classList.add("open");
+  palette.setAttribute("aria-hidden", "false");
+  $("#palette-trigger")?.setAttribute("aria-expanded", "true");
+  const input = $("#palette-input");
+  if (input) {
+    input.value = "";
+    renderPalette("");
+  }
+  setTimeout(() => input?.focus(), 0);
+}
+
+function closePalette() {
+  const palette = $("#command-palette");
+  if (!palette) return;
+  state.palette.open = false;
+  palette.classList.remove("open");
+  palette.setAttribute("aria-hidden", "true");
+  $("#palette-trigger")?.setAttribute("aria-expanded", "false");
+  if (state.palette.previousFocus && typeof state.palette.previousFocus.focus === "function") {
+    state.palette.previousFocus.focus();
+  }
+  state.palette.previousFocus = null;
+}
+
+function renderPalette(query) {
+  const needle = String(query || "").trim().toUpperCase();
+  const stocks = state.allStocks.length ? state.allStocks : state.stocks;
+  const views = PALETTE_VIEWS.filter(
+    (item) => !needle || item.label.toUpperCase().includes(needle) || item.view.toUpperCase().includes(needle)
+  ).map((item) => ({
+    ...item,
+    meta: `GOTO ${item.meta}`,
+  }));
+  const tickers = stocks
+    .filter((stock) => !needle || stock.ticker.includes(needle))
+    .map((stock) => ({
+      kind: "ticker",
+      label: stock.ticker,
+      ticker: stock.ticker,
+      meta: `${fmtPrice(stock.close)} · ${fmtPct(stock.return_1d)}`,
+    }));
+  const items = [...views, ...tickers].slice(0, 14);
+  state.palette.items = items;
+  if (state.palette.index >= items.length) state.palette.index = Math.max(0, items.length - 1);
+  const results = $("#palette-results");
+  if (!results) return;
+  results.innerHTML = items.length
+    ? items
+        .map(
+          (item, index) => `<div class="palette-item${index === state.palette.index ? " active" : ""}" role="option" aria-selected="${
+            index === state.palette.index ? "true" : "false"
+          }" data-palette-index="${index}">
+            <span class="pi-kind">${item.kind === "view" ? "VIEW" : "TICKER"}</span>
+            <span class="pi-label">${escapeHtml(item.label)}</span>
+            <span class="pi-meta">${escapeHtml(item.meta || "")}</span>
+          </div>`
+        )
+        .join("")
+    : '<div class="palette-empty">Tidak ada hasil. Coba kode ticker atau nama halaman.</div>';
+}
+
+function movePalette(delta) {
+  const total = state.palette.items.length;
+  if (!total) return;
+  state.palette.index = (state.palette.index + delta + total) % total;
+  renderPalette($("#palette-input")?.value || "");
+  const active = $("#palette-results .palette-item.active");
+  active?.scrollIntoView({ block: "nearest" });
+}
+
+function executePalette(index) {
+  const item = state.palette.items[index];
+  if (!item) return;
+  closePalette();
+  if (item.kind === "view") {
+    activateView(item.view);
+    return;
+  }
+  if (item.ticker) openDetail(item.ticker);
+}
+
+/* ------------------------------------------------------------------ */
 /* Initialization                                                      */
 /* ------------------------------------------------------------------ */
 function bindEvents() {
@@ -952,6 +1539,15 @@ function bindEvents() {
       toggleWatch(watchButtonNode.dataset.watch);
       return;
     }
+    const paletteItem = event.target.closest("[data-palette-index]");
+    if (paletteItem) {
+      executePalette(Number(paletteItem.dataset.paletteIndex));
+      return;
+    }
+    if (event.target.closest("[data-close-palette]")) {
+      closePalette();
+      return;
+    }
     const openNode = event.target.closest("[data-open]");
     if (openNode) {
       openDetail(openNode.dataset.open);
@@ -963,14 +1559,43 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
+    const isCommand = (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k";
+    if (isCommand) {
+      event.preventDefault();
+      if (state.palette.open) closePalette();
+      else openPalette();
+      return;
+    }
+    if (state.palette.open) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePalette();
+      } else if (event.key === "ArrowDown") {
+        event.preventDefault();
+        movePalette(1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        movePalette(-1);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        executePalette(state.palette.index);
+      }
+      return;
+    }
     if (event.key === "Escape") closeDetail();
   });
 
+  $("#palette-trigger").addEventListener("click", openPalette);
+  $("#palette-input").addEventListener("input", (event) => {
+    state.palette.index = 0;
+    renderPalette(event.target.value);
+  });
   $("#detail-watch").addEventListener("click", () => {
     if (state.detail) toggleWatch(state.detail.ticker);
   });
 
   $("#overview-refresh").addEventListener("click", () => loadOverview());
+  $("#monitor-refresh").addEventListener("click", () => loadMonitor(true));
   $("#explorer-refresh").addEventListener("click", () => loadExplorer());
   $("#health-refresh").addEventListener("click", () => loadHealth(true));
   $("#watchlist-clear").addEventListener("click", () => {
@@ -978,7 +1603,7 @@ function bindEvents() {
     persistWatchlist();
     updateWatchCount();
     loadWatchlistView();
-    state.stocks.forEach((item) => syncWatchButtons(item.ticker));
+    (state.allStocks.length ? state.allStocks : state.stocks).forEach((item) => syncWatchButtons(item.ticker));
     toast("Watchlist dikosongkan.");
   });
 
@@ -1004,6 +1629,14 @@ function bindEvents() {
     });
   });
 
+  $$("#monitor-ranges button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.monitor.range = button.dataset.range;
+      if (state.monitor.data) renderMonitor();
+      else loadMonitor(false);
+    });
+  });
+
   $$("#health-filters .chip").forEach((chip) => {
     chip.addEventListener("click", () => {
       state.healthFilter = chip.dataset.severity;
@@ -1016,6 +1649,7 @@ function bindEvents() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       if (state.detail && $("#detail-drawer").classList.contains("open")) renderChartForRange();
+      if (state.monitor.data && $("#view-monitor").classList.contains("active")) renderMonitor();
     }, 180);
   });
 }
@@ -1044,6 +1678,7 @@ async function init() {
     state.meta = meta;
     state.overview = overview;
     state.stocks = stocks.items;
+    state.allStocks = stocks.items;
     renderMeta();
     renderOverview();
     renderExplorer();
@@ -1056,7 +1691,7 @@ async function init() {
     apiPill.textContent = "API: error";
     apiPill.classList.add("bad");
     toast(error.message, true);
-    $("#overview-cards").innerHTML = `<div class="card"><div class="label">Gagal memuat</div><div class="sub">${escapeHtml(
+    $("#overview-cards").innerHTML = `<div class="strip-cell"><div class="label">Gagal memuat</div><div class="sub">${escapeHtml(
       error.message
     )}</div></div>`;
   }

@@ -18,6 +18,7 @@ Prinsip utama:
 | Bagian | Status | Keterangan |
 |---|---|---|
 | Market Overview | Ada | Snapshot sesi terakhir, breadth, top gainers/losers, most active |
+| Market Monitor | Ada | Equal-weight index dan volume historis, dihitung dari OHLCV lokal |
 | Stock Explorer | Ada | 30 ticker, pencarian, sorting, watchlist |
 | Historical OHLCV Chart | Ada | Candlestick + volume, rentang 1M/3M/6M/1Y/All |
 | Watchlist | Ada | Disimpan di `localStorage` browser |
@@ -150,6 +151,22 @@ mengembalikan HTTP 503.
 - Top gainers (hanya return positif) dan top losers (hanya return negatif).
 - Most active berdasarkan volume.
 - Cakupan sentimen dan peringatan bahwa NULL bukan netral.
+- Banner dan pill umur dataset agar snapshot historis terlihat jelas.
+
+### Market Monitor
+
+- Equal-weight index universe, bukan IHSG.
+- Volume total universe per sesi.
+- Rentang 1M/3M/6M/1Y/All.
+- Tabel performa seluruh ticker untuk rentang terpilih.
+- Index dan return dihitung dari endpoint OHLCV yang sudah ada; tidak ada
+  endpoint backend baru dan tidak ada data live.
+
+### Command Palette
+
+- Tekan `Ctrl+K` (atau klik kolom search di command bar).
+- Cari ticker atau lompat ke lima halaman terminal.
+- Navigasi dengan panah atas/bawah, pilih dengan Enter, tutup dengan Escape.
 
 ### Stock Explorer
 
@@ -178,7 +195,9 @@ http://127.0.0.1:8000/?ticker=BBCA#explorer
 
 - Tambah/hapus ticker dari Explorer atau detail.
 - Disimpan di `localStorage` dengan key `fsm.watchlist.v1`.
-- Tombol "Kosongkan" menghapus semua ticker di browser tersebut.
+- Tombol "Clear all" menghapus semua ticker di browser tersebut.
+- Ringkasan watchlist (jumlah, rata-rata return, breadth, berita) dihitung dari
+  snapshot API, bukan data tambahan.
 - Tidak ada request tulis ke backend.
 
 ### Data Health
@@ -251,21 +270,41 @@ Jalankan seluruh test:
 python -m pytest -q
 ```
 
-Hasil verifikasi MVP 001:
+Hasil verifikasi MVP 001 + TASK 112:
 
 - `334 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
 - 14 test baru untuk repository dan API MVP.
 - Test frontend statis memastikan `index.html`, `app.js`, dan `styles.css`
-  disajikan dengan benar.
+  disajikan dengan benar, termasuk Market Monitor dan command palette.
 
 Verifikasi browser manual (Chrome headless + CDP) yang dilakukan:
 
 - Market Overview terisi nilai aktual, bukan placeholder.
+- Market Monitor memuat 30 seri OHLCV dari API yang sudah ada, index
+  equal-weight dan volume tampil, rentang 1M/6M berubah.
+- Command palette `Ctrl+K` bisa mencari `BBCA` dan membuka detail.
 - Watchlist bisa menambah/menghapus dan bertahan setelah reload.
 - Pencarian dan sorting Stock Explorer bekerja.
-- Chart detail tampil, jumlah candle sesuai rentang, dan tombol 1M/6M berubah.
+- Chart detail tampil, jumlah candle sesuai rentang, dan tombol 1M/3M/6M/1Y/All
+  bekerja.
 - Data Health menampilkan 35 PASS, 2 WARN, 0 FAIL dan filter WARN bekerja.
+- Layout desktop 1600px, tablet 1024px, dan mobile 390px tidak mengalami
+  horizontal overflow halaman.
 - Tidak ada error JavaScript di console browser.
+
+### Screenshot
+
+Screenshot hasil verifikasi disimpan di `docs/screenshots/task-112/`:
+
+1. `01-market-overview.png`
+2. `02-market-monitor.png`
+3. `03-stock-explorer.png`
+4. `04-stock-detail.png`
+5. `05-watchlist.png`
+6. `06-data-health.png`
+7. `07-command-palette.png`
+8. `08-responsive-mobile.png`
+9. `09-responsive-tablet.png`
 
 ---
 
