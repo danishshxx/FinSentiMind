@@ -162,6 +162,31 @@ Freshness WARN dari validator **tidak** memblokir publikasi. WARN itu tetap
 dilaporkan sebagai `age_days` dan `latest_trading_date`; data lama tidak
 dianggap baru hanya karena file ditulis ulang.
 
+## 6a. Berita Masa Depan dan Quarantine
+
+Setiap artikel mendapat salah satu status eksplisit:
+
+- `MAPPED` — masuk ke sesi terverifikasi.
+- `PENDING_FUTURE_SESSION` — sesi berikutnya belum ada di calendar; artikel
+  disimpan di `ml/reports/pending_news_<run_id>.json` dan tidak dipetakan ke
+  sesi sebelumnya.
+- `QUARANTINED_UNRESOLVABLE` — timestamp rusak atau tidak ada sesi
+  terverifikasi dalam 30 hari; alasan dicatat eksplisit.
+
+Aturan:
+
+- Tidak ada pembuatan sesi dari hari kerja generik.
+- Tidak ada drop artikel secara diam-diam.
+- Pending tetap dapat diproses ulang saat calendar bertambah.
+- Jika semua artikel pending dan tidak ada quarantine, `daily_sentiment`
+  kosong dengan schema valid boleh dihasilkan dan dicatat sebagai
+  `sentiment_empty_reason=all_articles_pending_future_session`.
+- Quarantine tanpa artikel mapped tetap memblokir stage.
+
+Laporan pending menyertakan `article_id`, ticker, `published_at`,
+`scraped_at`, `effective_available_at`, status, reason, dan
+`reprocessing_eligible`.
+
 ## 7. Metadata Refresh
 
 Lokasi:
@@ -172,6 +197,7 @@ ml/reports/refresh_latest.json        # run terakhir, termasuk gagal
 ml/reports/refresh_last_success.json  # hanya run SUCCESS
 ml/reports/quality_gate_<run_id>.md
 ml/reports/validation_<run_id>.md
+ml/reports/pending_news_<run_id>.json
 ```
 
 Field penting:

@@ -24,7 +24,10 @@ from ml.preprocessing.refresh_pipeline import (
     EXIT_PUBLISH_FAILED,
     STAGE_SPECS,
     RefreshConfig,
+    RefreshContext,
+    StageFailure,
     run_refresh,
+    stage_sentiment_aggregation,
 )
 
 
@@ -382,3 +385,64 @@ def test_successful_refresh_publishes_quant_features_when_stage_creates_them(tmp
     )
     assert outcome.exit_code == EXIT_OK
     assert (tmp_path / "generations" / "feature-run" / "quant_features.parquet").exists()
+
+
+def _sentiment_ctx(tmp_path: Path) -> RefreshContext:
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    calendar = staging / "trading_calendar.parquet"
+    pd.DataFrame({"date": [], "is_trading_day": []}).to_parquet(calendar, index=False)
+    ctx = RefreshContext(
+        config=RefreshConfig(data_root=tmp_path, reports_dir=tmp_path),
+        run_id="sentiment-run",
+        started_at="2026-01-01T00:00:00+00:00",
+        staging_dir=staging,
+        previous_manifest=None,
+    )
+    ctx.artifacts["trading_calendar"] = calendar
+    return ctx
+
+
+def test_all_pending_sentiment_does_not_block_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = _sentiment_ctx(tmp_path)
+
+    def fake_build(**kwargs):
+        result = pd.DataFrame()
+        result.attrs["mapping_audit"] = {
+            "mapped": 0,
+            "pending_future_session": 3,
+            "quarantined_unresolvable": 0,
+            "total": 3,
+        }
+        return result
+
+    monkeypatch.setattr(
+        refresh_pipeline, "build_daily_sentiment_dataset", fake_build
+    )
+    stage_sentiment_aggregation(ctx)
+    assert ctx.metrics["sentiment_rows"] == 0
+    assert ctx.metrics["sentiment_empty_reason"] == "all_articles_pending_future_session"
+
+
+def test_unexplained_empty_sentiment_blocks_stage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    ctx = _sentiment_ctx(tmp_path)
+
+    def fake_build(**kwargs):
+        result = pd.DataFrame()
+        result.attrs["mapping_audit"] = {
+            "mapped": 0,
+            "pending_future_session": 0,
+            "quarantined_unresolvable": 2,
+            "total": 2,
+        }
+        return result
+
+    monkeypatch.setattr(
+        refresh_pipeline, "build_daily_sentiment_dataset", fake_build
+    )
+    with pytest.raises(StageFailure, match="empty"):
+        stage_sentiment_aggregation(ctx)

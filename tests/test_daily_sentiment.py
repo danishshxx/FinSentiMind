@@ -9,11 +9,17 @@ import pytest
 
 from app.core.config import get_settings, reset_settings_cache
 from ml.preprocessing.daily_sentiment import (
+    MAPPING_MAPPED,
+    MAPPING_PENDING,
+    MAPPING_QUARANTINED,
     OUTPUT_COLUMNS,
     aggregate_daily_sentiment,
     align_news_to_trading_date,
+    build_daily_sentiment_dataset,
     calculate_effective_available_at,
     classify_availability_quality,
+    classify_news_alignment,
+    write_pending_news_report,
 )
 
 
@@ -497,3 +503,158 @@ def test_audit_mutually_exclusive_ticker_counts(caplog):
     assert "missing_ticker=1" in log
     assert "empty_ticker=2" in log
     assert "excluded=3" in log
+
+
+# ---------------------------------------------------------------------------
+# TASK 107A: future-session and quarantine handling
+# ---------------------------------------------------------------------------
+
+def _classified(rows, dates=TRADING_DATES):
+    df = _df(rows)
+    df = calculate_effective_available_at(df, JKT)
+    df = classify_availability_quality(df, threshold_days=7)
+    return classify_news_alignment(df, dates, CUTOFF, JKT)
+
+
+def test_future_article_after_last_session_is_pending_not_previous():
+    out = _classified([_row(
+        "BBCA",
+        published="2025-01-14T17:00:00+07:00",
+        scraped="2025-01-14T17:05:00+07:00",
+    )])
+    assert out["mapping_status"].iloc[0] == MAPPING_PENDING
+    assert out["trading_date"].iloc[0] is None
+    assert bool(out["reprocessing_eligible"].iloc[0]) is True
+
+
+def test_future_weekend_article_is_pending_without_fabricated_session():
+    dates = TRADING_DATES - {date(2025, 1, 13), date(2025, 1, 14)}
+    out = _classified([_row(
+        "BBCA",
+        published="2025-01-11T10:00:00+07:00",
+        scraped="2025-01-11T10:05:00+07:00",
+    )], dates=dates)
+    assert out["mapping_status"].iloc[0] == MAPPING_PENDING
+    assert out["trading_date"].iloc[0] is None
+
+
+def test_pending_article_maps_when_verified_calendar_is_extended():
+    row = [_row(
+        "BBCA",
+        published="2025-01-14T17:00:00+07:00",
+        scraped="2025-01-14T17:05:00+07:00",
+    )]
+    pending = _classified(row)
+    assert pending["mapping_status"].iloc[0] == MAPPING_PENDING
+
+    extended = TRADING_DATES | {date(2025, 1, 15)}
+    mapped = _classified(row, dates=extended)
+    assert mapped["mapping_status"].iloc[0] == MAPPING_MAPPED
+    assert mapped["trading_date"].iloc[0] == date(2025, 1, 15)
+
+
+def test_historical_gap_beyond_lookahead_is_quarantined():
+    dates = {date(2025, 1, 6), date(2025, 3, 1)}
+    out = _classified([_row(
+        "BBCA",
+        published="2025-01-06T17:00:00+07:00",
+        scraped="2025-01-06T17:05:00+07:00",
+    )], dates=dates)
+    assert out["mapping_status"].iloc[0] == MAPPING_QUARANTINED
+    assert "no_verified_session" in out["mapping_reason"].iloc[0]
+    assert bool(out["reprocessing_eligible"].iloc[0]) is False
+
+
+def test_malformed_timestamp_is_quarantined_not_silently_dropped():
+    out = _classified([_row(
+        "BBCA",
+        published="2025-01-06T10:00:00+07:00",
+        scraped=None,
+    )])
+    assert len(out) == 1
+    assert out["mapping_status"].iloc[0] == MAPPING_QUARANTINED
+    assert "missing_scraped_at" in out["mapping_reason"].iloc[0]
+
+
+def test_all_pending_aggregation_is_empty_with_schema():
+    out = _classified([_row(
+        "BBCA",
+        published="2025-01-14T17:00:00+07:00",
+        scraped="2025-01-14T17:05:00+07:00",
+    )])
+    result = aggregate_daily_sentiment(out)
+    assert result.empty
+    assert list(result.columns) == OUTPUT_COLUMNS
+
+
+def test_aggregate_ignores_non_mapped_rows():
+    dates = TRADING_DATES | {date(2025, 1, 15)}
+    out = _classified([
+        _row("BBCA", "2025-01-06T10:00:00+07:00", "2025-01-06T10:05:00+07:00"),
+        _row("BBCA", "2025-01-15T17:00:00+07:00", "2025-01-15T17:05:00+07:00"),
+    ], dates=dates)
+    result = aggregate_daily_sentiment(out)
+    assert len(result) == 1
+    assert result.iloc[0]["news_count"] == 1
+    assert result.iloc[0]["trading_date"] == date(2025, 1, 6)
+
+
+def test_pending_report_contains_auditable_article_metadata(tmp_path):
+    df = _df([{
+        "id": "article-001",
+        **_row(
+            "BBCA",
+            published="2025-01-14T17:00:00+07:00",
+            scraped="2025-01-14T17:05:00+07:00",
+        ),
+    }])
+    df = calculate_effective_available_at(df, JKT)
+    df = classify_availability_quality(df, threshold_days=7)
+    df = classify_news_alignment(df, TRADING_DATES, CUTOFF, JKT)
+    path = write_pending_news_report(
+        df,
+        run_id="test-run",
+        calendar_dates=TRADING_DATES,
+        cutoff=CUTOFF,
+        tz=JKT,
+        reports_dir=tmp_path,
+    )
+    import json
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["counts"]["pending_future_session"] == 1
+    article = payload["pending_articles"][0]
+    assert article["article_id"] == "article-001"
+    assert article["ticker"] == "BBCA"
+    assert article["published_at"]
+    assert article["effective_available_at"]
+    assert article["reprocessing_eligible"] is True
+
+
+def test_build_all_pending_writes_empty_schema_and_report(tmp_path):
+    out_path = tmp_path / "daily_sentiment.parquet"
+    calendar_path = tmp_path / "trading_calendar.parquet"
+    pd.DataFrame({
+        "date": [date(2025, 1, 6)],
+        "ticker_count": [1],
+        "available_count": [1],
+        "coverage_ratio": [1.0],
+        "is_trading_day": [True],
+    }).to_parquet(calendar_path, index=False)
+    news = _df([_row(
+        "BBCA",
+        published="2025-01-06T17:00:00+07:00",
+        scraped="2025-01-06T17:05:00+07:00",
+    )])
+    with patch.dict(os.environ, _minimal_env(), clear=True):
+        reset_settings_cache()
+        result = build_daily_sentiment_dataset(
+            news_df=news,
+            save=True,
+            output_path=out_path,
+            calendar_path=calendar_path,
+            run_id="all-pending",
+            reports_dir=tmp_path,
+        )
+    assert result.empty
+    assert out_path.exists()
+    assert (tmp_path / "pending_news_all-pending.json").exists()

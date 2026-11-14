@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import argparse
-from datetime import time
+import json
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -12,6 +13,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.database.supabase_client import fetch_all
 from app.services.time_alignment import map_to_trading_date
+from ml.preprocessing.dataset_store import write_json_atomic
 from ml.preprocessing.trading_calendar import get_trading_dates
 
 
@@ -23,12 +25,21 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 NEWS_SELECT_COLUMNS = [
+    "id",
     "ticker",
     "sentiment_label",
     "sentiment_score",
     "published_at",
     "scraped_at",
 ]
+
+MAPPING_MAPPED = "MAPPED"
+MAPPING_PENDING = "PENDING_FUTURE_SESSION"
+MAPPING_QUARANTINED = "QUARANTINED_UNRESOLVABLE"
+
+PENDING_REASON_FUTURE = "next_verified_session_not_yet_available"
+QUARANTINE_REASON_TIMESTAMP = "missing_or_invalid_effective_timestamp"
+QUARANTINE_REASON_UNRESOLVABLE = "no_verified_session_within_lookahead_window"
 
 OUTPUT_COLUMNS = [
     "ticker",
@@ -43,6 +54,8 @@ OUTPUT_COLUMNS = [
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = _PROJECT_ROOT / "ml" / "data" / "daily_sentiment.parquet"
+DEFAULT_REPORTS_DIR = _PROJECT_ROOT / "ml" / "reports"
+_LOOKAHEAD_DAYS = 30
 
 
 # ---------------------------------------------------------------------------
@@ -142,15 +155,17 @@ def calculate_effective_available_at(
         earlier than realistically available.
 
     Audit:
-        - Missing scraped_at: excluded (observation time cannot be established).
+        - Missing scraped_at: retained and marked with `timestamp_error`;
+          the alignment stage quarantines it explicitly. It is never silently
+          dropped.
         - Missing published_at with valid scraped_at: fallback to scraped_at;
           flagged via internal `_published_was_missing` for reconstructed
           classification.
-        - Missing both: excluded (counted as missing_scraped).
+        - Missing both: retained and marked with `timestamp_error`.
 
     Naive timestamps:
         Supabase `timestamptz` returns ISO 8601 with tz offset. `utc=True`
-        treats naive input as UTC — documented assumption; verify source
+        treats naive input as UTC - documented assumption; verify source
         convention if unexpected timestamps appear.
 
     Args:
@@ -159,7 +174,7 @@ def calculate_effective_available_at(
 
     Returns:
         DataFrame copy with tz-aware `published_at`, `scraped_at`, and new
-        column `effective_available_at` (all in `tz`).
+        columns `effective_available_at` and `timestamp_error` (all in `tz`).
     """
     df = df.copy()
 
@@ -180,11 +195,11 @@ def calculate_effective_available_at(
 
     if n_scraped_missing == 0 and n_published_missing_but_scraped_valid == 0:
         logger.info(
-            "Timestamp audit: all %d records valid (0 excluded).", n_both_present
+            "Timestamp audit: all %d records valid (0 quarantined).", n_both_present
         )
     else:
         logger.info(
-            "Timestamp audit: scraped_missing=%d (excluded), "
+            "Timestamp audit: scraped_missing=%d (quarantined), "
             "published_missing_but_scraped_valid=%d (fallback -> reconstructed), "
             "both_valid=%d.",
             n_scraped_missing,
@@ -192,13 +207,24 @@ def calculate_effective_available_at(
             n_both_present,
         )
 
-    # Exclude rows without scraped_at (observation time unknown)
-    df = df[df["scraped_at"].notna()].copy()
+    df["timestamp_error"] = None
+    df.loc[
+        df["scraped_at"].isna() & df["published_at"].isna(),
+        "timestamp_error",
+    ] = "missing_published_and_scraped_at"
+    df.loc[
+        df["scraped_at"].isna() & df["published_at"].notna(),
+        "timestamp_error",
+    ] = "missing_scraped_at"
 
     # Fallback: published_at missing but scraped_at valid
     df["_published_was_missing"] = df["published_at"].isna()
-    df.loc[df["_published_was_missing"], "published_at"] = df.loc[
-        df["_published_was_missing"], "scraped_at"
+    df.loc[
+        df["_published_was_missing"] & df["scraped_at"].notna(),
+        "published_at",
+    ] = df.loc[
+        df["_published_was_missing"] & df["scraped_at"].notna(),
+        "scraped_at",
     ]
 
     # effective_available_at = max(published_at, scraped_at)
@@ -318,6 +344,185 @@ def align_news_to_trading_date(
     return df
 
 
+def _article_identifier(row: pd.Series, position: int) -> str:
+    """Return a stable article identifier for audit reports."""
+    if "id" in row.index:
+        value = row.get("id")
+        if value is not None and not pd.isna(value):
+            return str(value)
+    return f"row_{position:06d}"
+
+
+def _candidate_session_date(
+    timestamp: datetime, cutoff: time, tz: ZoneInfo
+) -> date:
+    """Apply the existing cutoff rule without inventing a session."""
+    local_dt = timestamp.astimezone(tz)
+    if local_dt.time() <= cutoff:
+        return local_dt.date()
+    return local_dt.date() + timedelta(days=1)
+
+
+def classify_news_alignment(
+    df: pd.DataFrame,
+    trading_dates: Iterable,
+    cutoff: time,
+    tz: ZoneInfo,
+) -> pd.DataFrame:
+    """Classify every article as MAPPED, PENDING, or QUARANTINED.
+
+    Safety rules:
+        - A future article is never mapped backwards.
+        - Weekday arithmetic never creates a session that is absent from the
+          verified calendar.
+        - Pending articles remain reprocessable on later runs.
+        - Malformed/unresolvable historical articles receive an explicit
+          quarantine reason.
+    """
+    dates = set(trading_dates)
+    if not dates:
+        raise ValueError("trading_dates is empty - cannot classify news.")
+
+    max_date = max(dates)
+    df = df.copy()
+
+    statuses: List[str] = []
+    mapped_dates: List[Optional[date]] = []
+    reasons: List[Optional[str]] = []
+    eligible: List[bool] = []
+
+    for position, (_, row) in enumerate(df.iterrows()):
+        timestamp = row.get("effective_available_at")
+        timestamp_error = row.get("timestamp_error")
+
+        if timestamp is None or pd.isna(timestamp) or timestamp_error:
+            statuses.append(MAPPING_QUARANTINED)
+            mapped_dates.append(None)
+            reasons.append(
+                str(timestamp_error) if timestamp_error else QUARANTINE_REASON_TIMESTAMP
+            )
+            eligible.append(False)
+            continue
+
+        try:
+            mapped = map_to_trading_date(timestamp, dates, cutoff, tz)
+        except (ValueError, TypeError):
+            candidate = _candidate_session_date(timestamp, cutoff, tz)
+            statuses.append(MAPPING_PENDING)
+            mapped_dates.append(None)
+            reasons.append(PENDING_REASON_FUTURE)
+            eligible.append(True)
+            if candidate <= max_date:
+                statuses[-1] = MAPPING_QUARANTINED
+                reasons[-1] = QUARANTINE_REASON_UNRESOLVABLE
+                eligible[-1] = False
+            continue
+
+        statuses.append(MAPPING_MAPPED)
+        mapped_dates.append(mapped)
+        reasons.append(None)
+        eligible.append(False)
+
+    df["trading_date"] = mapped_dates
+    df["mapping_status"] = statuses
+    df["mapping_reason"] = reasons
+    df["reprocessing_eligible"] = eligible
+    return df
+
+
+def summarize_mapping(df: pd.DataFrame) -> Dict[str, Any]:
+    """Return machine-readable counts and calendar bounds for an alignment."""
+    if "mapping_status" not in df.columns:
+        return {
+            "mapped": 0,
+            "pending_future_session": 0,
+            "quarantined_unresolvable": 0,
+            "total": int(len(df)),
+        }
+    counts = df["mapping_status"].value_counts(dropna=False)
+    return {
+        "mapped": int(counts.get(MAPPING_MAPPED, 0)),
+        "pending_future_session": int(counts.get(MAPPING_PENDING, 0)),
+        "quarantined_unresolvable": int(counts.get(MAPPING_QUARANTINED, 0)),
+        "total": int(len(df)),
+    }
+
+
+def _iso_or_none(value: Any) -> Optional[str]:
+    if value is None or pd.isna(value):
+        return None
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return value.isoformat()
+    return str(value)
+
+
+def _audit_article(row: pd.Series, position: int) -> Dict[str, Any]:
+    return {
+        "article_id": _article_identifier(row, position),
+        "ticker": None if pd.isna(row.get("ticker")) else str(row.get("ticker")),
+        "published_at": _iso_or_none(row.get("published_at")),
+        "scraped_at": _iso_or_none(row.get("scraped_at")),
+        "effective_available_at": _iso_or_none(
+            row.get("effective_available_at")
+        ),
+        "mapping_status": row.get("mapping_status"),
+        "reason": row.get("mapping_reason"),
+        "reprocessing_eligible": bool(row.get("reprocessing_eligible", False)),
+    }
+
+
+def build_pending_news_report(
+    df: pd.DataFrame,
+    run_id: str,
+    calendar_dates: Iterable,
+    cutoff: time,
+    tz: ZoneInfo,
+) -> Dict[str, Any]:
+    """Build an auditable report of pending and quarantined articles."""
+    dates = sorted(set(calendar_dates))
+    pending: List[Dict[str, Any]] = []
+    quarantined: List[Dict[str, Any]] = []
+
+    for position, (_, row) in enumerate(df.iterrows()):
+        status = row.get("mapping_status")
+        if status == MAPPING_PENDING:
+            pending.append(_audit_article(row, position))
+        elif status == MAPPING_QUARANTINED:
+            quarantined.append(_audit_article(row, position))
+
+    counts = summarize_mapping(df)
+    return {
+        "schema_version": 1,
+        "run_id": run_id,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "timezone": str(tz),
+        "signal_cutoff": cutoff.isoformat(),
+        "calendar_start": dates[0].isoformat() if dates else None,
+        "calendar_end": dates[-1].isoformat() if dates else None,
+        "calendar_session_count": len(dates),
+        "counts": counts,
+        "pending_articles": pending,
+        "quarantined_articles": quarantined,
+    }
+
+
+def write_pending_news_report(
+    df: pd.DataFrame,
+    run_id: str,
+    calendar_dates: Iterable,
+    cutoff: time,
+    tz: ZoneInfo,
+    reports_dir: Path = DEFAULT_REPORTS_DIR,
+) -> Path:
+    """Write ``ml/reports/pending_news_<run_id>.json`` atomically."""
+    payload = build_pending_news_report(
+        df, run_id=run_id, calendar_dates=calendar_dates, cutoff=cutoff, tz=tz
+    )
+    path = reports_dir / f"pending_news_{run_id}.json"
+    write_json_atomic(path, payload)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
@@ -346,6 +551,10 @@ def aggregate_daily_sentiment(df: pd.DataFrame) -> pd.DataFrame:
         return _empty_output()
 
     df = df.copy()
+    if "mapping_status" in df.columns:
+        df = df[df["mapping_status"] == MAPPING_MAPPED].copy()
+    if df.empty:
+        return _empty_output()
 
     df["_is_positive"] = (
         df["sentiment_label"].str.upper() == "POSITIVE"
@@ -404,22 +613,22 @@ def build_daily_sentiment_dataset(
     save: bool = True,
     output_path: Path = DEFAULT_OUTPUT,
     calendar_path: Optional[Path] = None,
+    run_id: Optional[str] = None,
+    reports_dir: Path = DEFAULT_REPORTS_DIR,
 ) -> pd.DataFrame:
     """
-    End-to-end: load -> effective_available_at -> quality -> align ->
+    End-to-end: load -> effective_available_at -> quality -> classify ->
     aggregate -> save.
 
-    Args:
-        news_df: Optional pre-loaded DataFrame (for tests).
-            If None, calls load_news().
-        tickers: Passed to load_news() if news_df is None.
-        save: Whether to write Parquet.
-        output_path: Parquet destination.
-        calendar_path: Optional trading calendar used for alignment. When
-            omitted, the active published calendar is used.
+    Articles are never dropped silently. Future articles become
+    PENDING_FUTURE_SESSION and are written to
+    ``pending_news_<run_id>.json``. Malformed or historically unresolvable
+    articles become QUARANTINED_UNRESOLVABLE with an explicit reason.
 
     Returns:
-        Aggregated DataFrame.
+        Aggregated DataFrame. Mapping audit is attached to
+        ``result.attrs["mapping_audit"]`` and, when a run_id is given, the
+        pending report path to ``result.attrs["pending_report_path"]``.
     """
     settings = get_settings()
     tz = settings.market_tz()
@@ -432,6 +641,7 @@ def build_daily_sentiment_dataset(
             "No news available. Writing empty daily_sentiment."
         )
         result = _empty_output()
+        result.attrs["mapping_audit"] = summarize_mapping(df)
         if save:
             _save_parquet(result, output_path)
         return result
@@ -444,19 +654,42 @@ def build_daily_sentiment_dataset(
     trading_dates = get_trading_dates(calendar_path)
     logger.info("Loaded %d trading dates from calendar.", len(trading_dates))
 
-    df = align_news_to_trading_date(df, trading_dates, cutoff=cutoff, tz=tz)
+    df = classify_news_alignment(df, trading_dates, cutoff=cutoff, tz=tz)
+    audit = summarize_mapping(df)
+
+    report_path: Optional[Path] = None
+    if run_id is not None or audit["pending_future_session"] or audit["quarantined_unresolvable"]:
+        effective_run_id = run_id or datetime.now(timezone.utc).strftime(
+            "sentiment_%Y%m%dT%H%M%SZ"
+        )
+        report_path = write_pending_news_report(
+            df,
+            run_id=effective_run_id,
+            calendar_dates=trading_dates,
+            cutoff=cutoff,
+            tz=tz,
+            reports_dir=reports_dir,
+        )
+        logger.info("Pending/quarantine audit: %s", report_path)
 
     result = aggregate_daily_sentiment(df)
+    result.attrs["mapping_audit"] = audit
+    if report_path is not None:
+        result.attrs["pending_report_path"] = str(report_path)
 
     if save:
         _save_parquet(result, output_path)
 
     logger.info(
-        "Daily sentiment: %d rows, %d tickers, date range %s -> %s.",
+        "Daily sentiment: %d rows, %d tickers, date range %s -> %s "
+        "(mapped=%d pending=%d quarantined=%d).",
         len(result),
         result["ticker"].nunique() if not result.empty else 0,
         result["trading_date"].min() if not result.empty else "-",
         result["trading_date"].max() if not result.empty else "-",
+        audit["mapped"],
+        audit["pending_future_session"],
+        audit["quarantined_unresolvable"],
     )
     return result
 

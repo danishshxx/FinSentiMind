@@ -316,11 +316,39 @@ def stage_sentiment_aggregation(ctx: RefreshContext) -> None:
         save=True,
         output_path=output,
         calendar_path=calendar_path,
+        run_id=ctx.run_id,
+        reports_dir=ctx.config.reports_dir,
     )
+    audit = sentiment.attrs.get("mapping_audit", {})
+    ctx.metrics["sentiment_mapping"] = audit
+    pending_report = sentiment.attrs.get("pending_report_path")
+    if pending_report:
+        ctx.report_paths["pending_news"] = _report_rel(Path(pending_report)) or pending_report
+
+    mapped = int(audit.get("mapped", 0))
+    pending = int(audit.get("pending_future_session", 0))
+    quarantined = int(audit.get("quarantined_unresolvable", 0))
+
     if sentiment.empty:
-        raise StageFailure(
-            "Daily sentiment dataset is empty; refusing to publish a zero-sentiment snapshot."
+        if pending > 0 and quarantined == 0:
+            logger.warning(
+                "Daily sentiment is empty because all %d eligible article(s) "
+                "are pending a future verified session; publishing an explicit "
+                "empty sentiment artifact.",
+                pending,
+            )
+            ctx.metrics["sentiment_empty_reason"] = "all_articles_pending_future_session"
+        else:
+            raise StageFailure(
+                "Daily sentiment dataset is empty and no all-pending explanation "
+                f"exists (mapped={mapped}, pending={pending}, quarantined={quarantined})."
+            )
+    elif quarantined > 0:
+        logger.warning(
+            "%d news article(s) were quarantined with explicit reasons.",
+            quarantined,
         )
+
     ctx.artifacts["daily_sentiment"] = output
     ctx.metrics["sentiment_rows"] = int(len(sentiment))
 
