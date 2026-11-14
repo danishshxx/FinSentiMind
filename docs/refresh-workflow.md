@@ -148,7 +148,7 @@ Jika salah satu stage gagal:
 
 Contoh kegagalan:
 
-- Backfill punya ticker error → `price_ingestion` FAILED.
+- Backfill punya ticker error atau ticker kosong → `price_ingestion` FAILED.
 - Provider berita error → `news_ingestion` FAILED (strict mode).
 - Sebagian artikel gagal dianalisis → `sentiment_processing` FAILED.
 - Quality gate menemukan duplikat/OHLC tidak valid → FAILED.

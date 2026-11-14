@@ -153,7 +153,24 @@ def _safe_generation_path(root: Path, relative: str | Path) -> Path:
     return candidate
 
 
-def resolve_active_dataset(root: Path | str) -> ActiveDataset:
+def _verify_pointer_artifacts(directory: Path, payload: Dict[str, Any]) -> None:
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict) or not artifacts:
+        return
+    for name in REQUIRED_ARTIFACTS:
+        expected = (artifacts.get(name) or {}).get("sha256")
+        if not expected:
+            continue
+        actual = sha256_file(directory / name)
+        if actual != expected:
+            raise DatasetStoreError(
+                f"Active generation checksum mismatch for {name}."
+            )
+
+
+def resolve_active_dataset(
+    root: Path | str, verify_hashes: bool = True
+) -> ActiveDataset:
     """Resolve ``active.json``; fall back to flat legacy files if absent/invalid."""
     root = Path(root)
     pointer = root / ACTIVE_POINTER
@@ -165,6 +182,8 @@ def resolve_active_dataset(root: Path | str) -> ActiveDataset:
                 raise DatasetStoreError("active.json has no generation field")
             candidate = _safe_generation_path(root, generation)
             require_artifacts(candidate)
+            if verify_hashes:
+                _verify_pointer_artifacts(candidate, payload)
             return ActiveDataset(
                 root=root,
                 active_dir=candidate,

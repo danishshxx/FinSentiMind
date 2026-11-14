@@ -108,3 +108,13 @@ def test_publication_failure_keeps_previous_active(tmp_path: Path):
 
     assert (tmp_path / "active.json").read_bytes() == pointer_before
     assert resolve_active_dataset(tmp_path).active_dir == first.path
+
+
+def test_tampered_active_generation_falls_back_to_legacy(tmp_path: Path):
+    published = publish_generation(_staging(tmp_path, "run-a", "a"), tmp_path, "run-a", {})
+    (tmp_path / "base_dataset.parquet").write_bytes(b"legacy")
+    (published.path / "base_dataset.parquet").write_bytes(b"tampered")
+
+    active = resolve_active_dataset(tmp_path)
+    assert active.source == "legacy"
+    assert active.active_dir == tmp_path

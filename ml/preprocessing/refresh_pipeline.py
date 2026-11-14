@@ -242,9 +242,10 @@ def stage_price_ingestion(ctx: RefreshContext) -> None:
         "rows_new": summary.total_new,
         "rows_overlap": summary.total_overlap,
     }
-    if summary.error_count:
+    if summary.error_count or summary.empty_count:
         raise StageFailure(
-            f"Price ingestion failed for {summary.error_count} ticker(s); "
+            f"Price ingestion failed for {summary.error_count} ticker(s) and "
+            f"returned no data for {summary.empty_count} ticker(s); "
             "publication is blocked."
         )
     if summary.ok_count == 0:

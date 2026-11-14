@@ -348,3 +348,24 @@ def test_partial_price_ingestion_errors_block_publication(
     assert outcome.exit_code == EXIT_FAILED
     assert "Price ingestion failed" in outcome.report["failure_reason"]
     assert not (tmp_path / "active.json").exists()
+
+
+def test_empty_price_ingestion_blocks_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class Summary:
+        total_tickers = 2
+        ok_count = 1
+        empty_count = 1
+        error_count = 0
+        total_fetched = 10
+        total_new = 2
+        total_overlap = 8
+
+    monkeypatch.setattr(refresh_pipeline, "run_backfill", lambda: Summary())
+    handlers = _handlers(price_ingestion=refresh_pipeline.stage_price_ingestion)
+    outcome = run_refresh(_config(tmp_path, "empty-ingest"), handlers)
+
+    assert outcome.exit_code == EXIT_FAILED
+    assert "returned no data" in outcome.report["failure_reason"]
+    assert not (tmp_path / "active.json").exists()
