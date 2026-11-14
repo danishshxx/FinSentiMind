@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from ml.fundamentals.analysis import build_ticker_analysis
 from ml.fundamentals.ingestion import (
     ingest_financial_statements,
     write_parquet_atomic,
@@ -155,3 +156,50 @@ def test_manual_csv_import_writes_normalized_dataset(tmp_path):
     assert output.exists()
     assert len(result) == 1
     assert result.iloc[0]["value"] == 1_500_000_000.0
+
+
+def test_ticker_analysis_returns_metrics_and_scenario_valuation(tmp_path):
+    current = [
+        ("revenue", 1000), ("operating_income", 200), ("net_income", 100),
+        ("total_equity", 500), ("total_debt", 200), ("cash", 50),
+        ("depreciation_amortization", 50), ("capex", 50),
+        ("shares_outstanding", 100), ("eps", 1.0),
+    ]
+    prior = [("revenue", 900), ("net_income", 80), ("total_equity", 450)]
+    rows = []
+    for item, value in current:
+        rows.append(_row(line_item=item, value=value / 1_000_000_000))
+    for item, value in prior:
+        rows.append(_row(
+            line_item=item, value=value / 1_000_000_000,
+            fiscal_year=2023, period_start="2023-01-01",
+            period_end="2023-12-31",
+            published_at="2024-03-01T09:00:00+07:00",
+            available_at="2024-03-01T09:00:00+07:00",
+            source_id="annual-report-2023",
+        ))
+    repo = _repository(tmp_path, rows)
+    result = build_ticker_analysis(
+        repo,
+        "TEST",
+        market_price=10,
+        shares_outstanding=100,
+        tax_rate=0.25,
+        maintenance_capex=10,
+        working_capital_change=5,
+        dcf_inputs={
+            "fcff_base": 100,
+            "growth_rate": 0.05,
+            "terminal_growth": 0.02,
+            "wacc": 0.10,
+            "forecast_years": 5,
+            "scenarios": {"bear": {"growth_rate": 0.0, "wacc": 0.12}},
+        },
+    )
+    assert result["status"] == "OK"
+    assert result["metrics"]["net_margin"]["value"] == pytest.approx(0.1)
+    assert result["valuation"]["owner_earnings"]["value"] == pytest.approx(135)
+    assert result["valuation"]["status"] == "OK"
+    assert len(result["valuation"]["scenarios"]) == 2
+    assert result["not_for_trading"] is True
+    assert result["dcf_sensitivity"]
