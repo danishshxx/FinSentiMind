@@ -242,7 +242,16 @@ Semua endpoint berada di `/api`.
 | GET | `/api/instruments/{ticker}` | Metadata satu instrumen |
 | GET | `/api/market/intelligence` | Breadth, regime, sector, macro context |
 | GET | `/api/research/latest` | Report riset ML; research-only |
+| GET | `/api/research/notes/{ticker}` | Catatan riset owner |
 | GET | `/api/data/health` | Laporan validator; filter `freshness_days` |
+| GET | `/api/capabilities` | Status modul/provider |
+| GET | `/api/fundamentals/{ticker}` | Metrik fundamental + optional DCF |
+| GET | `/api/capital-flow/market` | Flow pasar |
+| GET | `/api/capital-flow/{ticker}` | Flow per saham |
+| GET | `/api/portfolio` | Daftar portfolio personal/model |
+| GET | `/api/portfolio/{id}` | Holdings + TWR/XIRR |
+| GET | `/api/risk/lab` | Optimasi + risiko + Monte Carlo |
+| GET | `/api/macro` | Cross-asset context |
 
 Contoh:
 
@@ -323,6 +332,38 @@ ML research:
 python -m ml.research.ml_pipeline
 ```
 
+Fundamental manual import dan quality:
+
+```powershell
+python -m ml.fundamentals.ingestion --type statements --input statements.csv
+python -m ml.fundamentals.quality
+```
+
+Capital flow manual import:
+
+```powershell
+python -m ml.capital_flow.ingestion --input flows.csv
+```
+
+Macro manual import:
+
+```powershell
+python -m ml.macro.ingestion --input macro.csv
+```
+
+Research notes dan portfolio ledger:
+
+```powershell
+python -m ml.workspace.notes --input notes.csv
+```
+
+Backup/verifikasi:
+
+```powershell
+python -m ml.ops.backup
+python -m ml.ops.backup --verify D:\backups\finsentimind.zip
+```
+
 Data Health memakai validator yang sama. Laporan Markdown ditulis ke `ml/reports/dataset_validation_<timestamp>.md`.
 
 Pilihan lain:
@@ -346,12 +387,12 @@ Jalankan seluruh test:
 python -m pytest -q
 ```
 
-Hasil verifikasi MVP 001 + TASK 112:
+Hasil verifikasi TASK 107–121:
 
-- `398 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
-- 14 test baru untuk repository dan API MVP.
-- Test TASK 107 mencakup staging/publish, rollback, kegagalan tiap stage,
-  lock concurrency, idempotensi, metadata freshness, dan strict mode ingestion.
+- `501 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
+- Test mencakup refresh staging/publish/rollback, pending news, calendar audit,
+  volume audit, fundamentals/valuation, capital flow, portfolio FIFO/TWR/XIRR,
+  Markowitz/risk/Monte Carlo, macro, notes, backup, API, dan frontend.
 - Test frontend statis memastikan `index.html`, `app.js`, dan `styles.css`
   disajikan dengan benar, termasuk Market Monitor dan command palette.
 
@@ -365,10 +406,13 @@ Verifikasi browser manual (Chrome headless + CDP) yang dilakukan:
 - Pencarian dan sorting Stock Explorer bekerja.
 - Chart detail tampil, jumlah candle sesuai rentang, dan tombol 1M/3M/6M/1Y/All
   bekerja.
-- Data Health menampilkan 35 PASS, 2 WARN, 0 FAIL dan filter WARN bekerja.
+- Data Health menampilkan status validator dan filter WARN bekerja.
+- Company Research, Capital Flow, Portfolio, Quant Risk Lab, Macro Context, dan
+  Research Reports merender explicit unavailable/available state.
 - Layout desktop 1600px, tablet 1024px, dan mobile 390px tidak mengalami
   horizontal overflow halaman.
 - Tidak ada error JavaScript di console browser.
+- Screenshot akhir: `docs/screenshots/final-product-acceptance/`.
 
 Verifikasi TASK 107:
 

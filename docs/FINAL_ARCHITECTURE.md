@@ -1,17 +1,17 @@
-# FinSentiMind — Final Architecture (TASK 107–111)
+# FinSentiMind — Final Architecture (TASK 107–121)
 
 ## 1. Gambaran Sistem
 
 FinSentiMind adalah terminal riset ekuitas IDX read-only berbasis:
 
-- FastAPI untuk API,
+- FastAPI untuk API lokal,
 - HTML/CSS/Vanilla JavaScript untuk frontend,
-- SVG chart tanpa library eksternal,
+- SVG chart tanpa framework eksternal,
 - dataset Parquet lokal,
 - generation/versioned publishing,
-- scikit-learn untuk riset ML.
+- scikit-learn, NumPy, SciPy untuk riset dan risiko.
 
-Tidak ada broker integration, live trading, atau data pasar real-time.
+Tidak ada broker integration, live trading, custody, atau data pasar real-time.
 
 ## 2. Alur Data
 
@@ -30,11 +30,11 @@ refresh_pipeline.py
   4 trading calendar
   5 news ingestion
   6 sentiment processing
-  7 daily sentiment
+  7 daily sentiment (mapped/pending/quarantine)
   8 base dataset
   9 quant features (optional artifact)
- 10 TASK 106 validation
- 11 generation publication
+ 10 validation
+ 11 generation publication (approval-gated)
  12 refresh report
         |
         v
@@ -54,15 +54,29 @@ ml/data/active.json (atomic pointer)
         +--> Market Monitor / Data Health
 ```
 
+Manual research imports feed separate read-only repositories:
+
+```text
+verified CSV/JSON -> ml/fundamentals -> FundamentalRepository
+verified CSV/JSON -> ml/capital_flow -> CapitalFlowRepository
+verified CSV/JSON -> ml/macro      -> MacroRepository
+verified CSV/JSON -> ml/portfolio  -> PortfolioRepository
+verified CSV/JSON -> ml/workspace  -> ResearchNoteRepository
+```
+
+Unavailable data remains `UNAVAILABLE`; it is never replaced with a dummy.
+
 ## 3. Safe Publishing
 
 - Staging: `ml/data/staging/<run_id>/`.
 - Generation immutable: `ml/data/generations/<run_id>/`.
-- Publikasi hanya setelah semua stage dan validasi TASK 106 lulus.
+- Publikasi hanya setelah semua stage dan validasi lulus.
 - `active.json` diganti dengan `os.replace` atomik.
 - Generation lama tetap ada.
 - Checksum SHA-256 disimpan di manifest dan diverifikasi reader.
 - Multi-file atomicity tidak diklaim; switch pointer yang atomik.
+- Full provider refresh, Supabase write, publication, dan `active.json` change
+  memerlukan approval owner.
 
 ## 4. Modul Utama
 
@@ -74,14 +88,31 @@ ml/data/active.json (atomic pointer)
 | `ml/preprocessing/load_prices.py` | Cleaning harga |
 | `ml/preprocessing/quality_gate.py` | Quality gate harga |
 | `ml/preprocessing/trading_calendar.py` | Calendar dari coverage |
-| `ml/preprocessing/daily_sentiment.py` | Agregasi sentimen harian |
+| `ml/preprocessing/daily_sentiment.py` | Sentimen harian + pending/quarantine |
+| `ml/preprocessing/calendar_audit.py` | Audit weekday gap |
+| `ml/preprocessing/anomaly_audit.py` | Audit volume change |
 | `ml/preprocessing/build_base_dataset.py` | Join price + sentiment |
-| `ml/validation/validate_dataset.py` | Validator independen TASK 106 |
+| `ml/validation/validate_dataset.py` | Validator independen |
 | `ml/metadata/master.py` | Instrument master auditabel |
-| `ml/features/quant.py` | Fitur kuantitatif v1 |
+| `ml/features/quant.py` | Fitur kuantitatif |
 | `ml/market/intelligence.py` | Breadth, regime, sector, macro adapter |
-| `ml/research/ml_pipeline.py` | Target, walk-forward, baseline, evaluation |
+| `ml/research/ml_pipeline.py` | Walk-forward ML research |
+| `ml/fundamentals/schemas.py` | Schema statement/action/dividend |
+| `ml/fundamentals/ingestion.py` | Import manual + provenance |
+| `ml/fundamentals/normalization.py` | Unit scale normalization |
+| `ml/fundamentals/repository.py` | Point-in-time repository |
+| `ml/fundamentals/quality.py` | Fundamental quality checks |
+| `ml/fundamentals/metrics.py` | Rasio dan growth |
+| `ml/fundamentals/valuation.py` | Owner earnings, DCF, MoS |
+| `ml/fundamentals/analysis.py` | Orkestrasi analisis ticker |
+| `ml/capital_flow/*` | Flow schema, import, provider, analisis |
+| `ml/portfolio/*` | FIFO ledger, TWR/XIRR |
+| `ml/risk/engine.py` | Markowitz, CAPM, risk parity, MC, VaR |
+| `ml/macro/*` | Macro history, provider, cross-asset |
+| `ml/workspace/notes.py` | Thesis/catalyst/risk notes |
+| `ml/ops/backup.py` | Backup checksummed |
 | `app/services/market_data.py` | Reader API read-only |
+| `app/services/research_suite.py` | Orkestrasi endpoint riset |
 | `frontend/*` | Terminal UI |
 
 ## 5. Data Contracts
@@ -104,14 +135,17 @@ volatility_20, atr_14,
 volume_sma_20, relative_volume_20, volume_change_1d
 ```
 
-Instrument master fields:
+Daily sentiment outcomes:
 
 ```text
-ticker, exchange, company_name, sector, subsector, listing_status,
-listing_date, previous_tickers, successor_ticker, provenance
+MAPPED
+PENDING_FUTURE_SESSION
+QUARANTINED_UNRESOLVABLE
 ```
 
-Missing metadata and sentimen tetap `NULL`.
+Fundamental statements are long-form with `value`, `original_value`,
+`unit_scale`, `currency`, `published_at`, `available_at`, `source_id`,
+`source_document`, `revision`, and `restatement_of`.
 
 ## 6. API Read-Only
 
@@ -127,33 +161,51 @@ Missing metadata and sentimen tetap `NULL`.
 | `/api/instruments` | Instrument master |
 | `/api/instruments/{ticker}` | Satu instrumen |
 | `/api/research/latest` | Report riset ML (research-only) |
+| `/api/research/notes/{ticker}` | Catatan riset owner |
 | `/api/data/health` | Validator TASK 106 |
+| `/api/capabilities` | Status modul dan provider |
+| `/api/fundamentals/{ticker}` | Metrik + optional DCF |
+| `/api/capital-flow/market` | Flow pasar |
+| `/api/capital-flow/{ticker}` | Flow saham |
+| `/api/portfolio` | Daftar portfolio |
+| `/api/portfolio/{id}` | Holdings + TWR/XIRR |
+| `/api/risk/lab` | Optimasi, risiko, Monte Carlo |
+| `/api/macro` | Cross-asset context |
 
-Tidak ada endpoint tulis data pasar.
+Semua endpoint read-only; tidak ada write endpoint untuk holdings, notes,
+fundamentals, atau order.
 
 ## 7. Frontend
 
 - Market Overview
-- Market Monitor + market intelligence + macro status
+- Market Monitor + market intelligence
 - Stock Explorer + sector
-- Stock Detail + instrument metadata + quant features
+- Company Research + metrics + valuation + notes
+- Capital Flow
+- Portfolio (personal/model)
+- Quant Risk Lab
+- Macro Context
 - Watchlist localStorage
+- Research Reports
 - Data Health
+- Stock Detail drawer + quant features + metadata
 - Ctrl+K command palette
 - Stale data banner
 
-Frontend tidak menampilkan prediksi ML sebagai sinyal tepercaya karena model
-berstatus `NOT_VALIDATED`.
+ML research tetap `NOT_VALIDATED`; tidak ditampilkan sebagai sinyal tepercaya.
 
 ## 8. Integritas Data
 
-- Tidak ada OHLCV atau sentimen yang difabrikasi.
+- Tidak ada OHLCV, sentimen, fundamental, flow, macro, atau portofolio yang
+  difabrikasi.
 - Tidak ada NULL-to-zero.
-- Target ML memakai next open dan future close hanya untuk label, bukan fitur.
+- Berita masa depan tidak dipetakan ke sesi sebelumnya dan tidak membuat sesi
+  palsu.
 - Feature window hanya memakai data sampai t.
 - Walk-forward + embargo 5 sesi.
-- Makro default unavailable; tidak ada dummy.
-- Macro provider hanya jika owner mengaktifkan dan lisensi disetujui.
+- Point-in-time `available_at` untuk fundamental, flow, macro, dan notes.
+- Unit scale dinormalisasi; currency conversion tidak diciptakan.
+- Full refresh dan publication tetap approval-gated.
 
 ## 9. Riset ML
 
@@ -167,31 +219,61 @@ target_return_5d = close(t+5) / open(t+1) - 1
 
 Model: DummyClassifier dan LogisticRegression.
 
-Status saat ini: **NOT_VALIDATED**.
+Status: **NOT_VALIDATED**.
 
 - ROC-AUC 0.5208 vs dummy 0.5000.
 - Strategy Sharpe -0.887 vs universe -1.045.
 - Cumulative strategy return -32.60%.
 
-Model tetap disimpan sebagai artefak riset dan tidak dipakai sebagai sinyal.
+Model disimpan sebagai artefak riset, bukan sinyal trading.
 
-## 10. Batasan dan Risiko
+## 10. Model Keuangan
+
+Formula lengkap ada di `docs/FINANCIAL_MODELS_CATALOG.md`, meliputi:
+
+- returns, SMA/EMA, RSI, ATR, volatility, relative volume;
+- rasio fundamental dan growth;
+- owner earnings, FCFF/DCF, WACC, margin of safety;
+- TWR/XIRR;
+- Markowitz, CAPM, risk parity;
+- Monte Carlo, VaR/CVaR, drawdown, Sharpe/Sortino/Calmar;
+- stress test dan factor exposure;
+- capital-flow aggregation;
+- cross-asset correlation.
+
+## 11. Keamanan dan Operasi
+
+- `.env` ignored; secrets tidak masuk laporan/log.
+- Server default `127.0.0.1`; tidak ada public auth/multi-user.
+- CORS tidak diaktifkan; akses same-origin.
+- Security headers diterapkan.
+- Error API generik; detail ada di server log.
+- Validasi input ticker/portfolio/risk.
+- Audit log opsional `FINSENTIMIND_AUDIT_LOG=1`.
+- Backup checksummed: `python -m ml.ops.backup`.
+- `pip check` bersih; `pip-audit` belum terpasang.
+
+## 12. Batasan dan Risiko
 
 - Dataset historis berhenti di 2026-10-09.
-- Sentimen sangat sparse (8 baris).
-- Macro belum tersedia secara resmi.
+- Sentimen sparse (8 baris legacy).
+- Tidak ada provider fundamental/flow/macro otomatis yang berlisensi.
+- Coal, nickel, dan CPO tetap `UNAVAILABLE`.
 - Metadata company/subsector/listing date parsial.
-- Full provider refresh belum dieksekusi pada sprint ini.
-- Model ML belum tervalidasi dan tidak layak dianggap trading strategy.
-- Belum ada deployment security, autentikasi, lisensi data, atau operational SLA.
-- Belum production-ready.
+- Full provider refresh belum dieksekusi; publication pending.
+- ML belum tervalidasi.
+- Belum ada deployment security, autentikasi, lisensi data, atau SLA.
+- Public launch **NOT APPROVED**; live trading **NOT IMPLEMENTED**.
+- Mapping hari libur calendar adalah curated dan harus diverifikasi ke decree
+  IDX tahunan.
 
-## 11. Verifikasi
+## 13. Verifikasi
 
-- 398 unit/integration tests.
-- Full pytest pass.
-- Real dry-run refresh: derived stages ok, quant stage ok, validation PASS 35/2/0,
-  no publication.
-- Browser verification: desktop, tablet, mobile; screenshot final acceptance.
-- No browser console errors.
+- **501 unit/integration tests**, 5 pre-existing Pydantic warnings.
+- `node --check frontend/app.js`: pass.
+- Browser acceptance: desktop, tablet, mobile; command palette; semua view;
+  tidak ada console error; tidak ada horizontal overflow.
+- Local dry-run refresh: derived stages ok, quant stage ok, validation
+  PASS 36 / WARN 1 / FAIL 0, no publication.
 - Security scan: no `.env`, credentials, or Parquet staged.
+- Screenshots: `docs/screenshots/final-product-acceptance/`.

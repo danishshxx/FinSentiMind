@@ -1,87 +1,119 @@
-PROJECT: FinSentiMind
-POSITIONING: AI-Powered Equity Research & Quantitative Intelligence Terminal
-             for the Indonesian Market
+# FinSentiMind — Project Handoff
 
-WORKFLOW:
-Agentic engineering = implementasi repository.
-ChatGPT = architecture reviewer, quant mentor, final reviewer.
-Owner = product decision-maker.
+## Product
 
-BRANCH:
-feat/finsentimind-completion
-Based on verified TASK 107 branch (683ca7b) and TASK 112 (0ccaaf2).
+FinSentiMind is a personal, read-only equity research and portfolio
+intelligence workstation for IDX. It combines a local market terminal,
+fundamental valuation, capital-flow context, portfolio accounting, quantitative
+risk analytics, and macro context.
 
-COMMITS:
-a5834db fix(data): harden refresh audit findings (TASK 107 audit)
-cee7f9a feat(data): add auditable instrument master layer (TASK 108)
-5a0846b feat(quant): add leakage-safe quant feature engine (TASK 109)
-5be5600 feat(market): add market intelligence and regime context (TASK 110)
-dea96bf feat(research): add leakage-safe ML research pipeline (TASK 111)
-Final integration commit: see Git log / final report.
+**Not implemented / not approved:** live trading, broker routing, custody,
+public multi-user deployment, guaranteed investment advice.
 
-COMPLETED:
-Phase 0: Production Foundation
-TASK 101: Data Foundation Architecture Review
-TASK 102A: Price Inventory + Historical Backfill
-TASK 102B: Clean Price Dataset
-TASK 102C: Price Quality Gate + Split Detection
-TASK 103: Trading Calendar + Time Alignment
-TASK 104: Daily Sentiment Aggregation + Refresh Workflow
-TASK 105: Base Dataset Builder
-TASK 106: Independent Dataset Validation
-MVP 001: Read-only Local Equity Research Terminal
-TASK 112: Hybrid Research Workstation UI + Market Monitor
-TASK 107: Safe versioned dataset refresh + publishing
-TASK 108: Auditable IDX instrument master data
-TASK 109: Deterministic quant feature engine v1
-TASK 110: Market intelligence, regime, sector context, macro adapters
-TASK 111: Leakage-safe ML research pipeline (NOT VALIDATED)
+## Branch and commits
 
-LAST REPORTED TEST RESULT:
-398 passed, 5 pre-existing Pydantic deprecation warnings.
+Current integration branch: `feat/finsentimind-investment-suite`
+(still based on the accepted TASK 107A branch).
 
-DATASET SNAPSHOT:
-data_as_of = 2026-10-09
-30 tickers, 14,405 base rows, 8 sentiment rows.
-Full external provider refresh was NOT executed in this sprint.
-Active dataset is still the legacy flat dataset; no active generation pointer
-was published.
+| Commit | Milestone |
+|---|---|
+| `a5834db` | TASK 107 audit hardening |
+| `cee7f9a` | TASK 108 instrument master |
+| `5a0846b` | TASK 109 quant features |
+| `5be5600` | TASK 110 market intelligence |
+| `dea96bf` | TASK 111 ML research (NOT VALIDATED) |
+| `1eb8f21` | Final acceptance evidence / execution plan |
+| `be26f01` | TASK 107A pending news + anomaly audits |
+| `ecb3582` | TASK 107B local refresh acceptance |
+| `45e7d4c` | TASK 113 fundamental data foundation |
+| `1c67dac` | TASK 114 fundamental metrics + valuation |
+| `f161ce6` | TASK 115 capital flow |
+| `570272a` | TASK 116 portfolio ledger |
+| `4525b72` | TASK 117 risk lab |
+| `8c40220` | TASK 118 macro / cross-asset |
+| `256f7c6` | TASK 119 integrated workstation |
+| `78f5323` | TASK 120 security / operations |
 
-SAFE REFRESH:
-python -m ml.preprocessing.refresh_pipeline
-python -m ml.preprocessing.refresh_pipeline --dry-run
-python -m ml.preprocessing.refresh_pipeline --validate-only
-python -m ml.preprocessing.refresh_pipeline --list-generations
-python -m ml.preprocessing.refresh_pipeline --rollback <run_id>
+TASK 107A is on `feat/task-107a-refresh-edge-cases`; its commit is `be26f01`.
 
-Real dry-run verified:
-- all derived stages ok,
-- quant_features stage ok,
-- validation PASS 35 / WARN 2 / FAIL 0,
-- no provider mutation and no publication.
+## Current dataset
 
-DERIVED COMMANDS:
-python -m ml.metadata.master
-python -m ml.features.quant
-python -m ml.research.ml_pipeline
+- `data_as_of = 2026-10-09`.
+- 30 tickers, 14,405 legacy flat base rows, 481 trading sessions.
+- The active reader still uses the legacy flat dataset.
+- No published generation and no `ml/data/active.json`.
+- Failed refresh staging `20261114T154144Z_acedb3bb/` is preserved.
+- TASK 107B dry-run produced a verified staging snapshot as of `2026-11-13`
+  but publication remains pending owner approval.
 
-ML RESEARCH:
-Status: NOT_VALIDATED
-ROC-AUC: 0.5208 vs dummy 0.5000
-Strategy Sharpe: -0.887 vs universe -1.045
-Cumulative strategy return: -32.60%
-Do not present as a trusted signal. No live trading.
+Do not present `refreshed_at` as the market date. The snapshot is historical.
 
-NEXT:
-Final acceptance review by owner/reviewer.
-Do not start additional modules until TASK 107-111 are accepted.
+## Architecture summary
 
-PRINCIPLES:
-- No look-ahead bias.
-- No fabricated OHLCV, sentiment, metadata, macro, or predictions.
-- Missing values remain missing; no NULL-to-zero conversion.
-- Last known good dataset must survive failed refresh.
-- refreshed_at != data_as_of.
-- Every financial calculation and model has documented methodology.
-- All new functionality has tests.
-- No Parquet artifacts, .env, or secrets in Git.
+### Data layer
+
+- `ml/preprocessing/refresh_pipeline.py`: staged refresh, failure blocking,
+  reports, publication gate.
+- `ml/preprocessing/dataset_store.py`: immutable generations, SHA-256 manifest,
+  atomic `active.json`, rollback, legacy fallback.
+- `ml/preprocessing/daily_sentiment.py`: MAPPED / PENDING_FUTURE_SESSION /
+  QUARANTINED_UNRESOLVABLE news handling.
+- `ml/preprocessing/calendar_audit.py`: non-destructive weekday-gap audit.
+- `ml/preprocessing/anomaly_audit.py`: volume-change audit.
+- `ml/validation/validate_dataset.py`: independent structural validation.
+
+### Research layer
+
+- `ml/metadata/master.py`: auditable instrument metadata.
+- `ml/features/quant.py`: leakage-safe price features.
+- `ml/market/intelligence.py`: equal-weight market context, breadth, regime.
+- `ml/research/ml_pipeline.py`: walk-forward ML research, `NOT_VALIDATED`.
+- `ml/fundamentals/`: manual fundamental imports, point-in-time repository,
+  ratios, owner earnings, DCF, scenarios, quality checks.
+- `ml/capital_flow/`: manual flow observations, broker/investor aggregation,
+  availability states.
+- `ml/portfolio/`: FIFO ledger, holdings, TWR/XIRR, personal/model portfolios.
+- `ml/risk/`: Markowitz, CAPM, risk parity, Monte Carlo, VaR/CVaR, stress,
+  factor exposure.
+- `ml/macro/`: manual/disabled macro history, cross-asset summary, correlations.
+- `ml/workspace/notes.py`: thesis/risk/catalyst notes with revisions.
+
+### API and UI
+
+- FastAPI read-only API in `app/api/routes.py`.
+- `app/services/research_suite.py` composes the read-only research endpoints.
+- Vanilla JS terminal in `frontend/` with:
+  Market Overview, Market Monitor, Stock Explorer, Company Research, Capital
+  Flow, Portfolio, Quant Risk Lab, Macro Context, Watchlist, Research Reports,
+  Data Health, command palette, stock detail drawer.
+- Existing API contracts are preserved; new endpoints are additive.
+
+## Verification
+
+- Last full suite: **501 passed, 5 pre-existing Pydantic warnings**.
+- `node --check frontend/app.js`: pass.
+- Browser acceptance: all views load without console errors; mobile and tablet
+  have no horizontal overflow.
+- Local dry-run refresh: `DRY_RUN`, data as of `2026-11-13`, validation
+  PASS 36 / WARN 1 / FAIL 0.
+- Research status remains `NOT_VALIDATED`; `not_for_trading=true`.
+
+## Known limitations
+
+- No automated fundamental, capital-flow, or macro provider is licensed. Those
+  modules use verified manual imports and explicit `UNAVAILABLE` states.
+- No public authentication, multi-user isolation, or production deployment.
+- No full provider refresh or generation publication without owner approval.
+- Sentiment coverage is sparse; NULL is not neutral.
+- Macro commodity proxies (coal, nickel, CPO) remain unavailable.
+- ML research underperformed the dummy baseline and is not a trading signal.
+- Calendar holiday mapping is curated and must be revalidated against the IDX
+  annual decree.
+- `pip-audit` is not installed; `pip check` is clean but this is not a CVE scan.
+
+## Recommended next milestone
+
+Owner review of TASK 121 acceptance evidence, followed by a controlled full
+refresh/publication only after explicit approval and verified data coverage.
+Do not start public deployment or live trading without separate legal,
+licensing, security, and operational approval.
