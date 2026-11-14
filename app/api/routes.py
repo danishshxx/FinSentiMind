@@ -8,6 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from ml.research.ml_pipeline import load_latest_research_report
 from app.services.market_data import (
     DataUnavailableError,
     MarketDataRepository,
@@ -154,3 +155,8 @@ def instrument_detail(ticker: str, request: Request) -> dict:
 @router.get("/market/intelligence", summary="Derived market context and regime")
 def market_intelligence(request: Request) -> dict:
     return get_repository(request).market_intelligence()
+
+
+@router.get("/research/latest", summary="Latest research-only model report")
+def research_latest() -> dict:
+    return load_latest_research_report()

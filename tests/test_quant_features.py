@@ -135,3 +135,11 @@ def test_build_writes_versioned_dataset_manifest_and_quality_report(tmp_path: Pa
     assert report["duplicate_keys"] == 0
     assert set(report["feature_stats"]) == set(FEATURE_COLUMNS)
     assert report["feature_stats"]["sma_200"]["non_null"] == 0
+
+
+def test_infinite_values_are_sanitized_to_null():
+    prices = _prices(30)
+    prices.loc[0, "volume"] = 0.0
+    features = compute_features(prices)
+    assert np.isfinite(features["volume_change_1d"].dropna()).all()
+    assert pd.isna(features.loc[1, "volume_change_1d"])

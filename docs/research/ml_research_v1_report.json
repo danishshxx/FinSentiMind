@@ -1,0 +1,417 @@
+{
+  "schema_version": 1,
+  "research_version": "ml_research_v1",
+  "generated_at": "2026-11-14T13:21:49.546755+00:00",
+  "status": "NOT_VALIDATED",
+  "not_for_trading": true,
+  "target": {
+    "definition": "close(t+5) / open(t+1) - 1",
+    "direction": "1 if target_return_5d > 0 else 0",
+    "signal_time": "after close of t",
+    "entry": "open of t+1",
+    "exit": "close of t+5",
+    "horizon_sessions": 5
+  },
+  "dataset": {
+    "rows": 14405,
+    "labelled_rows": 14255,
+    "tickers": 30,
+    "date_min": "2024-10-07",
+    "date_max": "2026-10-09",
+    "feature_version": "quant_features_v1",
+    "features": [
+      "return_1d",
+      "return_5d",
+      "return_20d",
+      "log_return_1d",
+      "rsi_14",
+      "volatility_20",
+      "atr_14",
+      "relative_volume_20",
+      "volume_change_1d",
+      "sentiment_mean",
+      "sentiment_std",
+      "positive_ratio",
+      "negative_ratio",
+      "has_news",
+      "market_return_1d",
+      "market_breadth",
+      "market_volatility_20"
+    ]
+  },
+  "validation": {
+    "method": "expanding walk-forward with embargo",
+    "embargo_sessions": 5,
+    "folds": [
+      {
+        "fold": 1,
+        "status": "evaluated",
+        "train_start": "2024-10-07",
+        "train_end": "2025-12-12",
+        "test_start": "2025-12-22",
+        "test_end": "2026-02-24",
+        "embargo_sessions": 5,
+        "train_rows": 8478,
+        "test_rows": 1200,
+        "metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.5058333333333334,
+          "precision": 0.5120910384068279,
+          "recall": 0.5930807248764415,
+          "f1": 0.549618320610687,
+          "brier": 0.25631027983864757,
+          "confusion_matrix": [
+            [
+              250,
+              343
+            ],
+            [
+              247,
+              360
+            ]
+          ],
+          "roc_auc": 0.5018405282941288,
+          "pr_auc": 0.5177063566401573
+        },
+        "dummy_metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.5058333333333334,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "brier": 0.5058333333333334,
+          "confusion_matrix": [
+            [
+              593,
+              0
+            ],
+            [
+              607,
+              0
+            ]
+          ],
+          "roc_auc": 0.5,
+          "pr_auc": 0.5058333333333334
+        }
+      },
+      {
+        "fold": 2,
+        "status": "evaluated",
+        "train_start": "2024-10-07",
+        "train_end": "2026-02-13",
+        "test_start": "2026-02-25",
+        "test_end": "2026-04-29",
+        "embargo_sessions": 5,
+        "train_rows": 9678,
+        "test_rows": 1200,
+        "metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.38166666666666665,
+          "precision": 0.3842239185750636,
+          "recall": 0.9890829694323144,
+          "f1": 0.5534514355528406,
+          "brier": 0.2731610247972559,
+          "confusion_matrix": [
+            [
+              16,
+              726
+            ],
+            [
+              5,
+              453
+            ]
+          ],
+          "roc_auc": 0.5445597288103673,
+          "pr_auc": 0.393773472474486
+        },
+        "dummy_metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.38166666666666665,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "brier": 0.38166666666666665,
+          "confusion_matrix": [
+            [
+              742,
+              0
+            ],
+            [
+              458,
+              0
+            ]
+          ],
+          "roc_auc": 0.5,
+          "pr_auc": 0.38166666666666665
+        }
+      },
+      {
+        "fold": 3,
+        "status": "evaluated",
+        "train_start": "2024-10-07",
+        "train_end": "2026-04-22",
+        "test_start": "2026-04-30",
+        "test_end": "2026-06-29",
+        "embargo_sessions": 5,
+        "train_rows": 10878,
+        "test_rows": 1200,
+        "metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.325,
+          "precision": 0.36492890995260663,
+          "recall": 0.7897435897435897,
+          "f1": 0.4991896272285251,
+          "brier": 0.2675145717167189,
+          "confusion_matrix": [
+            [
+              274,
+              536
+            ],
+            [
+              82,
+              308
+            ]
+          ],
+          "roc_auc": 0.5923076923076923,
+          "pr_auc": 0.3683342837271729
+        },
+        "dummy_metrics": {
+          "sample_size": 1200,
+          "positive_rate": 0.325,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "brier": 0.325,
+          "confusion_matrix": [
+            [
+              810,
+              0
+            ],
+            [
+              390,
+              0
+            ]
+          ],
+          "roc_auc": 0.5,
+          "pr_auc": 0.325
+        }
+      },
+      {
+        "fold": 4,
+        "status": "evaluated",
+        "train_start": "2024-10-07",
+        "train_end": "2026-06-22",
+        "test_start": "2026-06-30",
+        "test_end": "2026-08-25",
+        "embargo_sessions": 5,
+        "train_rows": 12078,
+        "test_rows": 1187,
+        "metrics": {
+          "sample_size": 1187,
+          "positive_rate": 0.5855096882898062,
+          "precision": 0.6189683860232945,
+          "recall": 0.5352517985611511,
+          "f1": 0.5740740740740741,
+          "brier": 0.2472317278098417,
+          "confusion_matrix": [
+            [
+              263,
+              229
+            ],
+            [
+              323,
+              372
+            ]
+          ],
+          "roc_auc": 0.5496461367491373,
+          "pr_auc": 0.6514437556562307
+        },
+        "dummy_metrics": {
+          "sample_size": 1187,
+          "positive_rate": 0.5855096882898062,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "brier": 0.5855096882898062,
+          "confusion_matrix": [
+            [
+              492,
+              0
+            ],
+            [
+              695,
+              0
+            ]
+          ],
+          "roc_auc": 0.5,
+          "pr_auc": 0.5855096882898062
+        }
+      },
+      {
+        "fold": 5,
+        "status": "evaluated",
+        "train_start": "2024-10-07",
+        "train_end": "2026-08-18",
+        "test_start": "2026-08-26",
+        "test_end": "2026-10-09",
+        "embargo_sessions": 5,
+        "train_rows": 13278,
+        "test_rows": 840,
+        "metrics": {
+          "sample_size": 840,
+          "positive_rate": 0.34404761904761905,
+          "precision": 0.41904761904761906,
+          "recall": 0.1522491349480969,
+          "f1": 0.2233502538071066,
+          "brier": 0.2386671928155242,
+          "confusion_matrix": [
+            [
+              490,
+              61
+            ],
+            [
+              245,
+              44
+            ]
+          ],
+          "roc_auc": 0.5578470098405542,
+          "pr_auc": 0.3866722185344166
+        },
+        "dummy_metrics": {
+          "sample_size": 840,
+          "positive_rate": 0.34404761904761905,
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "brier": 0.34404761904761905,
+          "confusion_matrix": [
+            [
+              551,
+              0
+            ],
+            [
+              289,
+              0
+            ]
+          ],
+          "roc_auc": 0.5,
+          "pr_auc": 0.34404761904761905
+        }
+      }
+    ]
+  },
+  "aggregate": {
+    "model": {
+      "sample_size": 5627,
+      "positive_rate": 0.433445885907233,
+      "precision": 0.44784382284382285,
+      "recall": 0.6301763017630176,
+      "f1": 0.5235905297223642,
+      "brier": 0.257744367246929,
+      "confusion_matrix": [
+        [
+          1293,
+          1895
+        ],
+        [
+          902,
+          1537
+        ]
+      ],
+      "roc_auc": 0.520829700141418,
+      "pr_auc": 0.4436661985853089
+    },
+    "dummy": {
+      "sample_size": 5627,
+      "positive_rate": 0.433445885907233,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "brier": 0.433445885907233,
+      "confusion_matrix": [
+        [
+          3188,
+          0
+        ],
+        [
+          2439,
+          0
+        ]
+      ],
+      "roc_auc": 0.5,
+      "pr_auc": 0.433445885907233
+    },
+    "strategy": {
+      "periods": 38,
+      "mean_period_return": -0.008171595889454696,
+      "cumulative_return": -0.32597070563193575,
+      "max_drawdown": -0.520319254133605,
+      "sharpe_annualized": -0.8871810225230414,
+      "win_rate": 0.42105263157894735,
+      "average_positions": 17.710526315789473,
+      "turnover": 17.710526315789473,
+      "universe_cumulative_return": -0.29468252454243604,
+      "universe_sharpe_annualized": -1.0445937240304528,
+      "cost_bps_per_side": 10.0
+    },
+    "strategy_zero_cost": {
+      "periods": 38,
+      "mean_period_return": -0.0063821222052441685,
+      "cumulative_return": -0.2778958580445581,
+      "max_drawdown": -0.5009662262432286,
+      "sharpe_annualized": -0.6931549740502708,
+      "win_rate": 0.42105263157894735,
+      "average_positions": 17.710526315789473,
+      "turnover": 17.710526315789473,
+      "universe_cumulative_return": -0.2384327155131113,
+      "universe_sharpe_annualized": -0.7758311373898884,
+      "cost_bps_per_side": 0.0
+    },
+    "strategy_25bps": {
+      "periods": 38,
+      "mean_period_return": -0.010855806415770485,
+      "cumulative_return": -0.3923092968166909,
+      "max_drawdown": -0.548021031711768,
+      "sharpe_annualized": -1.1777531709100448,
+      "win_rate": 0.39473684210526316,
+      "average_positions": 17.710526315789473,
+      "turnover": 17.710526315789473,
+      "universe_cumulative_return": -0.37154768569881025,
+      "universe_sharpe_annualized": -1.4477376039912981,
+      "cost_bps_per_side": 25.0
+    }
+  },
+  "acceptance": {
+    "validated": false,
+    "status": "NOT_VALIDATED",
+    "reasons": [
+      "Model must beat dummy ROC-AUC by > 0.02, strategy Sharpe must exceed the equal-weight universe baseline by > 0.10, and the strategy must be positive with positive Sharpe before any research-only label is considered.",
+      "Out-of-sample improvement vs dummy: 0.520829700141418 vs 0.5",
+      "Strategy vs universe Sharpe: -0.8871810225230414 vs -1.0445937240304528"
+    ]
+  },
+  "explainability": {
+    "method": "average standardized logistic coefficients across folds",
+    "positive_contributors": {
+      "return_1d": 0.7120196041502934,
+      "market_volatility_20": 0.16921421885613144,
+      "market_breadth": 0.10817935413482868,
+      "volatility_20": 0.06741858639845115,
+      "atr_14": 0.0366888600692726
+    },
+    "negative_contributors": {
+      "log_return_1d": -0.7951771949118888,
+      "market_return_1d": -0.07004819946395541,
+      "volume_change_1d": -0.028015774000086674,
+      "rsi_14": -0.010158757720952549,
+      "return_5d": -0.004560515794201673
+    },
+    "disclaimer": "Coefficients describe model associations, not causal effects."
+  },
+  "limitations": [
+    "Research-only; not a trusted investment signal.",
+    "Sentiment is sparse; missing values are imputed only inside each training fold and flagged by has_news.",
+    "Overlapping labels are handled with a 5-session embargo and non-overlapping strategy dates.",
+    "No live execution or broker integration."
+  ]
+}

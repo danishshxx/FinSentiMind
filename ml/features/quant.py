@@ -153,6 +153,9 @@ def compute_features(prices: pd.DataFrame) -> pd.DataFrame:
     combined = combined.sort_values(KEY_COLUMNS, kind="mergesort").reset_index(drop=True)
     if combined.duplicated(subset=KEY_COLUMNS).any():
         raise FeatureError("Duplicate (ticker, trading_date) keys after computation")
+    combined[FEATURE_COLUMNS] = combined[FEATURE_COLUMNS].replace(
+        [np.inf, -np.inf], np.nan
+    )
     return combined[[*KEY_COLUMNS, *FEATURE_COLUMNS]]
 
 

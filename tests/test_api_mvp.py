@@ -113,6 +113,14 @@ def test_market_intelligence_endpoint(client: TestClient):
     assert payload["sector_performance"]["sectors"] == []
 
 
+def test_research_latest_endpoint_is_research_only(client: TestClient):
+    response = client.get("/api/research/latest")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "available" in payload
+    assert payload.get("not_for_trading") is True
+
+
 def test_data_health_endpoint(client: TestClient):
     response = client.get("/api/data/health", params={"freshness_days": 7})
     assert response.status_code == 200
