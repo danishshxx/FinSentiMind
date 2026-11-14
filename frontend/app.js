@@ -901,10 +901,10 @@ function renderExplorer() {
       .map(
         (item) => `<tr>
           <td>${watchButton(item.ticker)}</td>
-          ${stockCells(item)}
+          ${stockCells(item, true, true)}
         </tr>`
       )
-      .join("") || '<tr><td colspan="9" class="empty">Tidak ada ticker yang cocok.</td></tr>';
+      .join("") || '<tr><td colspan="10" class="empty">Tidak ada ticker yang cocok.</td></tr>';
 }
 
 async function loadExplorer() {
@@ -1074,9 +1074,19 @@ function renderDetail() {
     statItem("Hari berita", String(quality.sentiment_days)),
   ].join("");
 
+  const completeness = instrument.completeness_pct;
   const qualityRows = {
+    Company: instrument.company_name || unavailable,
+    Sector: instrument.sector || unavailable,
+    Subsector: instrument.subsector || unavailable,
+    "Listing status": instrument.listing_status || "unknown",
+    "Listing date": instrument.listing_date || unavailable,
+    Metadata:
+      completeness === null || completeness === undefined
+        ? unavailable
+        : `${Number(completeness).toFixed(0)}% · ${instrument.metadata_status || "unknown"}`,
     Coverage: coverage,
-    "Observed / calendar": `${quality.observed_sessions ?? "—"} / ${quality.calendar_sessions ?? "—"}`,
+    "Observed / calendar": `${quality.observed_sessions ?? "-"} / ${quality.calendar_sessions ?? "-"}`,
     "Baris harga": stats.price_rows,
     "Rentang data": `${fmtDate(stats.first_trading_date)} → ${fmtDate(stats.last_trading_date)}`,
     "Hari berita": quality.sentiment_days,
@@ -1095,13 +1105,14 @@ function renderDetail() {
     ["SMA 50", "sma_50", "price"],
     ["EMA 20", "ema_20", "price"],
     ["RSI 14", "rsi_14", "number"],
-    ["Volatility 20", "volatility_20", "pct"],
+    ["Volatility 20", "volatility_20", "pct_u"],
     ["ATR 14", "atr_14", "price"],
     ["Rel. volume 20", "relative_volume_20", "ratio"],
   ];
   const formatFeature = (value, kind) => {
     if (isMissing(value)) return '<span class="muted">NULL</span>';
     if (kind === "pct") return fmtPct(value, 2, true);
+    if (kind === "pct_u") return fmtPct(value, 2, false);
     if (kind === "price") return fmtPrice(value);
     if (kind === "ratio") return `${Number(value).toFixed(2)}x`;
     return Number(value).toFixed(2);

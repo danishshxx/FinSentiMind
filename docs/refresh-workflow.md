@@ -36,9 +36,10 @@ Stage TASK 107 memakai modul yang sudah ada:
 | 6 | Sentiment processing | `run_sentiment_analysis(strict=True)` |
 | 7 | Daily sentiment | `build_daily_sentiment_dataset(calendar_path=...)` |
 | 8 | Base dataset | `run_build()` |
-| 9 | Full validation | `run_all_checks()` TASK 106 |
-| 10 | Publication | `publish_generation()` |
-| 11 | Report | `refresh_<run_id>.json` |
+| 9 | Quant features | `build_feature_dataset()` (optional artifact) |
+| 10 | Full validation | `run_all_checks()` TASK 106 |
+| 11 | Publication | `publish_generation()` |
+| 12 | Report | `refresh_<run_id>.json` |
 
 Tidak ada provider pasar baru dan tidak ada duplikasi logika cleaning,
 quality gate, kalender, sentimen, atau join base dataset.
@@ -55,6 +56,7 @@ ml/data/
       daily_sentiment.parquet
       trading_calendar.parquet
       base_dataset.parquet
+      quant_features.parquet          # optional derived artifact
       generation.json                 # checksum + metadata
   staging/
     <run_id>/                         # sisa run gagal / dry-run

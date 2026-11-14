@@ -40,6 +40,7 @@ REQUIRED_ARTIFACTS = (
     "trading_calendar.parquet",
     "base_dataset.parquet",
 )
+OPTIONAL_ARTIFACTS = ("quant_features.parquet",)
 
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
@@ -131,8 +132,10 @@ def require_artifacts(directory: Path) -> None:
 def artifact_manifest(directory: Path) -> Dict[str, Dict[str, Any]]:
     require_artifacts(directory)
     artifacts: Dict[str, Dict[str, Any]] = {}
-    for name in REQUIRED_ARTIFACTS:
+    for name in (*REQUIRED_ARTIFACTS, *OPTIONAL_ARTIFACTS):
         path = directory / name
+        if not path.is_file():
+            continue
         stat = path.stat()
         artifacts[name] = {
             "size_bytes": int(stat.st_size),
@@ -157,11 +160,16 @@ def _verify_pointer_artifacts(directory: Path, payload: Dict[str, Any]) -> None:
     artifacts = payload.get("artifacts")
     if not isinstance(artifacts, dict) or not artifacts:
         return
-    for name in REQUIRED_ARTIFACTS:
+    for name in (*REQUIRED_ARTIFACTS, *OPTIONAL_ARTIFACTS):
         expected = (artifacts.get(name) or {}).get("sha256")
         if not expected:
             continue
-        actual = sha256_file(directory / name)
+        path = directory / name
+        if not path.is_file():
+            raise DatasetStoreError(
+                f"Active generation is missing checksummed artifact {name}."
+            )
+        actual = sha256_file(path)
         if actual != expected:
             raise DatasetStoreError(
                 f"Active generation checksum mismatch for {name}."
@@ -307,10 +315,16 @@ def verify_generation(
 
     if check_hashes and not report["missing"]:
         artifacts = manifest.get("artifacts", {})
-        for name in REQUIRED_ARTIFACTS:
+        for name in (*REQUIRED_ARTIFACTS, *OPTIONAL_ARTIFACTS):
             expected = (artifacts.get(name) or {}).get("sha256")
-            actual = sha256_file(directory / name)
-            if expected and expected != actual:
+            if not expected:
+                continue
+            path = directory / name
+            if not path.is_file():
+                report["missing"].append(name)
+                continue
+            actual = sha256_file(path)
+            if expected != actual:
                 report["hash_mismatches"].append(name)
 
     report["valid"] = not report["missing"] and not report["hash_mismatches"]

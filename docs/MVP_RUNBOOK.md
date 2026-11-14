@@ -18,8 +18,12 @@ Prinsip utama:
 | Bagian | Status | Keterangan |
 |---|---|---|
 | Market Overview | Ada | Snapshot sesi terakhir, breadth, top gainers/losers, most active |
-| Market Monitor | Ada | Equal-weight index dan volume historis, dihitung dari OHLCV lokal |
-| Stock Explorer | Ada | 30 ticker, pencarian, sorting, watchlist |
+| Market Monitor | Ada | Equal-weight index, volume, market intelligence, regime, sector |
+| Instrument metadata | Ada | Master IDX30 auditabel; field hilang tetap null |
+| Quant features | Ada | Fitur v1 deterministik dan leakage-safe |
+| Market intelligence | Ada | Breadth, cross-section, volatility, regime, macro adapter |
+| ML research | Research only | Walk-forward, baseline, status NOT_VALIDATED |
+| Stock Explorer | Ada | 30 ticker, pencarian, sorting, sector, watchlist |
 | Historical OHLCV Chart | Ada | Candlestick + volume, rentang 1M/3M/6M/1Y/All |
 | Watchlist | Ada | Disimpan di `localStorage` browser |
 | Data Health | Ada | Memakai ulang validator TASK 106 |
@@ -154,6 +158,14 @@ mengembalikan HTTP 503.
 - Cakupan sentimen dan peringatan bahwa NULL bukan netral.
 - Banner dan pill umur dataset agar snapshot historis terlihat jelas.
 
+### Market Monitor ? Market Intelligence
+
+- Regime dengan metodologi percentile historis.
+- Cross-section median/P10/P90 dan breadth.
+- Volatility 20 sesi annualized dan volume activity.
+- Sector performance dari metadata TASK 108.
+- Macro context: default unavailable; tidak ada dummy value.
+
 ### Market Monitor
 
 - Equal-weight index universe, bukan IHSG.
@@ -173,6 +185,7 @@ mengembalikan HTTP 503.
 
 - Pencarian ticker.
 - Sorting berdasarkan ticker, close, return 1D, volume, news, sentimen, sesi.
+- Kolom Sector dari metadata terverifikasi.
 - Tombol Watch per ticker.
 - Klik ticker untuk membuka detail.
 
@@ -184,6 +197,8 @@ mengembalikan HTTP 503.
 - Coverage sesi terhadap trading calendar.
 - Chart candlestick + volume dengan rentang 1M/3M/6M/1Y/All.
 - Riwayat sentimen hanya untuk hari yang punya berita.
+- Metadata company/sector/subsector/listing dengan status completeness.
+- Quant Features v1 yang sudah divalidasi secara numerik.
 - Lima sesi terakhir.
 
 Deep link untuk membuka detail langsung:
@@ -223,6 +238,10 @@ Semua endpoint berada di `/api`.
 | GET | `/api/stocks` | Daftar saham; filter `search`, `tickers`, `sort`, `order` |
 | GET | `/api/stocks/{ticker}` | Detail saham + statistik + kualitas data |
 | GET | `/api/stocks/{ticker}/ohlcv` | OHLCV historis; filter `start`, `end`, `limit` |
+| GET | `/api/instruments` | Master metadata instrumen + provenance |
+| GET | `/api/instruments/{ticker}` | Metadata satu instrumen |
+| GET | `/api/market/intelligence` | Breadth, regime, sector, macro context |
+| GET | `/api/research/latest` | Report riset ML; research-only |
 | GET | `/api/data/health` | Laporan validator; filter `freshness_days` |
 
 Contoh:
@@ -280,13 +299,31 @@ publishing yang aman; tetap ada hanya untuk kompatibilitas.
 
 ## 9. Menjalankan Validator Secara Manual
 
-Data Health memakai validator yang sama. Untuk membuat laporan Markdown:
+Validator dataset:
 
 ```powershell
 python -m ml.validation.validate_dataset
 ```
 
-Laporan ditulis ke `ml/reports/dataset_validation_<timestamp>.md`.
+Metadata instrumen:
+
+```powershell
+python -m ml.metadata.master
+```
+
+Quant features:
+
+```powershell
+python -m ml.features.quant
+```
+
+ML research:
+
+```powershell
+python -m ml.research.ml_pipeline
+```
+
+Data Health memakai validator yang sama. Laporan Markdown ditulis ke `ml/reports/dataset_validation_<timestamp>.md`.
 
 Pilihan lain:
 
@@ -311,7 +348,7 @@ python -m pytest -q
 
 Hasil verifikasi MVP 001 + TASK 112:
 
-- `360 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
+- `398 passed`, 5 warning Pydantic lama yang sudah ada sebelumnya.
 - 14 test baru untuk repository dan API MVP.
 - Test TASK 107 mencakup staging/publish, rollback, kegagalan tiap stage,
   lock concurrency, idempotensi, metadata freshness, dan strict mode ingestion.

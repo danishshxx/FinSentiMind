@@ -118,3 +118,12 @@ def test_tampered_active_generation_falls_back_to_legacy(tmp_path: Path):
     active = resolve_active_dataset(tmp_path)
     assert active.source == "legacy"
     assert active.active_dir == tmp_path
+
+
+def test_optional_quant_feature_artifact_is_published_and_verified(tmp_path: Path):
+    staging = _staging(tmp_path, "run-features", "f")
+    (staging / "quant_features.parquet").write_bytes(b"features")
+    published = publish_generation(staging, tmp_path, "run-features", {})
+    assert "quant_features.parquet" in published.manifest["artifacts"]
+    assert verify_generation(tmp_path, "run-features")["valid"] is True
+    assert resolve_active_dataset(tmp_path).run_id == "run-features"

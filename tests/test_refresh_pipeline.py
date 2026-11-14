@@ -369,3 +369,16 @@ def test_empty_price_ingestion_blocks_publication(
     assert outcome.exit_code == EXIT_FAILED
     assert "returned no data" in outcome.report["failure_reason"]
     assert not (tmp_path / "active.json").exists()
+
+
+def test_successful_refresh_publishes_quant_features_when_stage_creates_them(tmp_path: Path):
+    def write_features(ctx):
+        (ctx.staging_dir / "quant_features.parquet").write_bytes(b"feature-artifact")
+        ctx.artifacts["quant_features"] = ctx.staging_dir / "quant_features.parquet"
+
+    outcome = run_refresh(
+        _config(tmp_path, "feature-run"),
+        _handlers(quant_features=write_features),
+    )
+    assert outcome.exit_code == EXIT_OK
+    assert (tmp_path / "generations" / "feature-run" / "quant_features.parquet").exists()

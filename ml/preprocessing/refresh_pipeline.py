@@ -30,6 +30,7 @@ import pandas as pd
 from app.core.logging import get_logger, setup_logging
 from app.jobs.run_news_scraper import run_news_pipeline
 from app.jobs.run_sentiment_pipeline import run_sentiment_analysis
+from ml.features.quant import build_feature_dataset
 from ml.preprocessing.backfill import run_backfill
 from ml.preprocessing.build_base_dataset import run_build
 from ml.preprocessing.daily_sentiment import build_daily_sentiment_dataset
@@ -102,6 +103,7 @@ STAGE_SPECS = (
     StageSpec("sentiment_processing", "Sentiment processing"),
     StageSpec("sentiment_aggregation", "Daily sentiment aggregation"),
     StageSpec("base_dataset", "Base dataset construction"),
+    StageSpec("quant_features", "Quant feature build"),
     StageSpec("validation", "Full dataset validation"),
 )
 PUBLICATION_SPEC = StageSpec("publication", "Dataset publication")
@@ -341,6 +343,25 @@ def stage_base_dataset(ctx: RefreshContext) -> None:
     ctx.metrics["base_dataset_rows"] = int(len(base))
 
 
+def stage_quant_features(ctx: RefreshContext) -> None:
+    prices_path = ctx.artifacts.get("prices_clean")
+    if prices_path is None or not prices_path.exists():
+        raise StageFailure("prices_clean.parquet is missing before quant features.")
+    output = ctx.staging_dir / "quant_features.parquet"
+    build = build_feature_dataset(
+        input_path=prices_path,
+        output_path=output,
+        manifest_path=ctx.config.reports_dir / f"quant_features_{ctx.run_id}_manifest.json",
+        report_path=ctx.config.reports_dir / f"quant_features_{ctx.run_id}_quality.json",
+    )
+    if build.features.empty:
+        raise StageFailure("Quant feature dataset is empty.")
+    ctx.artifacts["quant_features"] = output
+    ctx.report_paths["quant_features"] = str(
+        ctx.config.reports_dir / f"quant_features_{ctx.run_id}_quality.json"
+    )
+
+
 def stage_validation(ctx: RefreshContext) -> None:
     base_path = ctx.artifacts.get("base_dataset")
     prices_path = ctx.artifacts.get("prices_clean")
@@ -383,6 +404,7 @@ DEFAULT_HANDLERS: Dict[str, Callable[[RefreshContext], None]] = {
     "sentiment_processing": stage_sentiment_processing,
     "sentiment_aggregation": stage_sentiment_aggregation,
     "base_dataset": stage_base_dataset,
+    "quant_features": stage_quant_features,
     "validation": stage_validation,
 }
 
