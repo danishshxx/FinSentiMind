@@ -275,6 +275,10 @@ class MarketDataRepository:
     def has_ticker(self, ticker: str) -> bool:
         return ticker.upper() in set(self.tickers())
 
+    def base_frame(self) -> pd.DataFrame:
+        """Return a copy of the normalized base dataset."""
+        return self._require_data().copy()
+
     def latest_date(self) -> Optional[str]:
         if self._base.empty:
             return None

@@ -18,10 +18,16 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
 from app.core.logging import get_logger, setup_logging
+from app.core.security import (
+    AuditLogMiddleware,
+    SecurityHeadersMiddleware,
+    generic_error_handler,
+)
 from app.services.market_data import (
     DataUnavailableError,
     MarketDataRepository,
 )
+from app.services.research_suite import ResearchSuite
 
 
 logger = get_logger(__name__)
@@ -44,8 +50,15 @@ def create_app(
     )
     repository = MarketDataRepository(data_dir)
     app.state.repository = repository
+    app.state.research_suite = ResearchSuite(repository)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(AuditLogMiddleware)
 
     app.include_router(router)
+
+    @app.exception_handler(Exception)
+    async def _unhandled(_request, exc: Exception) -> JSONResponse:
+        return await generic_error_handler(_request, exc)
 
     @app.exception_handler(DataUnavailableError)
     async def _data_unavailable(_request, exc: DataUnavailableError) -> JSONResponse:

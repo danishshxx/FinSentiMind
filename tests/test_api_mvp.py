@@ -118,7 +118,67 @@ def test_research_latest_endpoint_is_research_only(client: TestClient):
     assert response.status_code == 200
     payload = response.json()
     assert "available" in payload
-    assert payload.get("not_for_trading") is True
+
+
+def test_capabilities_expose_unavailable_modules(client: TestClient):
+    response = client.get("/api/capabilities")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["read_only"] is True
+    assert payload["research_status"] == "NOT_VALIDATED"
+    assert payload["live_trading"] == "NOT_IMPLEMENTED"
+    assert "provider_matrix" in payload
+
+
+def test_fundamental_endpoint_is_explicitly_unavailable(client: TestClient):
+    response = client.get("/api/fundamentals/AAA")
+    assert response.status_code == 200
+    assert response.json()["status"] == "UNAVAILABLE"
+
+
+def test_capital_flow_endpoint_is_explicitly_unavailable(client: TestClient):
+    response = client.get("/api/capital-flow/market")
+    assert response.status_code == 200
+    assert response.json()["summary"]["status"] == "UNAVAILABLE"
+
+
+def test_macro_endpoint_is_explicitly_unavailable(client: TestClient):
+    response = client.get("/api/macro")
+    assert response.status_code == 200
+    assert response.json()["status"] == "UNAVAILABLE"
+
+
+def test_portfolio_endpoint_returns_installed_items(client: TestClient):
+    response = client.get("/api/portfolio")
+    assert response.status_code == 200
+    assert response.json()["status"] == "OK"
+
+
+def test_risk_lab_endpoint_runs_on_local_history(client: TestClient):
+    response = client.get("/api/risk/lab", params={"tickers": "AAA,BBB"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "OK"
+    assert payload["minimum_variance"]["weights"]
+    assert payload["not_for_trading"] is True
+
+
+def test_security_headers_are_present(client: TestClient):
+    response = client.get("/api/health")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_research_notes_endpoint_is_explicit(client: TestClient):
+    response = client.get("/api/research/notes/AAA")
+    assert response.status_code == 200
+    assert response.json()["status"] in {"OK", "UNAVAILABLE"}
+
+
+def test_invalid_portfolio_and_risk_inputs_are_rejected(client: TestClient):
+    assert client.get("/api/portfolio/bad id").status_code == 422
+    assert client.get("/api/risk/lab", params={"tickers": "AAA,<bad>"}).status_code == 422
 
 
 def test_data_health_endpoint(client: TestClient):

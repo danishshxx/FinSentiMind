@@ -27,6 +27,12 @@ const state = {
     requestId: 0,
   },
   intelligence: { loading: false, data: null, error: null, requestId: 0 },
+  research: { loading: false, data: null, notes: null, ticker: "BBCA" },
+  flow: { loading: false, market: null, stock: null, ticker: "BBCA" },
+  portfolio: { loading: false, items: [], data: null, selected: "" },
+  risk: { loading: false, data: null },
+  macro: { loading: false, data: null },
+  reports: { loading: false, data: null },
   palette: { open: false, index: 0, items: [], previousFocus: null },
 };
 
@@ -219,12 +225,21 @@ const VIEW_LABELS = {
   overview: "MARKET OVERVIEW",
   monitor: "MARKET MONITOR",
   explorer: "STOCK EXPLORER",
+  research: "COMPANY RESEARCH",
+  flow: "CAPITAL FLOW",
+  portfolio: "PORTFOLIO",
+  risk: "QUANT RISK LAB",
+  macro: "MACRO CONTEXT",
   watchlist: "WATCHLIST",
+  reports: "RESEARCH REPORTS",
   health: "DATA HEALTH",
 };
 
 function activateView(name, updateHash = true) {
-  const valid = ["overview", "monitor", "explorer", "watchlist", "health"];
+  const valid = [
+    "overview", "monitor", "explorer", "research", "flow", "portfolio",
+    "risk", "macro", "watchlist", "reports", "health",
+  ];
   const view = valid.includes(name) ? name : "overview";
   $$(".tab").forEach((tab) => {
     const active = tab.dataset.view === view;
@@ -242,6 +257,12 @@ function activateView(name, updateHash = true) {
     loadMonitor(false);
     loadIntelligence(false);
   }
+  if (view === "research" && !state.research.data) loadResearch(false);
+  if (view === "flow" && !state.flow.market) loadFlow(false);
+  if (view === "portfolio") loadPortfolioList(false);
+  if (view === "risk" && !state.risk.data) loadRisk(false);
+  if (view === "macro" && !state.macro.data) loadMacro(false);
+  if (view === "reports" && !state.reports.data) loadReports(false);
   if (view === "watchlist") loadWatchlistView();
   if (view === "health") loadHealth(false);
 }
@@ -1563,14 +1584,418 @@ function renderHealthChecks() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Integrated research suite                                           */
+/* ------------------------------------------------------------------ */
+function metricValue(metric) {
+  if (!metric || isMissing(metric.value)) return "—";
+  if (metric.unit === "ratio") return fmtPct(metric.value);
+  if (metric.unit === "currency_per_share") return fmtPrice(metric.value);
+  if (metric.unit === "currency") return fmtCompact(metric.value);
+  return Number(metric.value).toLocaleString("id-ID", { maximumFractionDigits: 3 });
+}
+
+function metricRows(metrics) {
+  const entries = Object.entries(metrics || {});
+  if (!entries.length) return '<tr><td colspan="4" class="empty">Tidak ada metrik.</td></tr>';
+  return entries
+    .map(([name, metric]) => `<tr>
+      <td>${escapeHtml(name)}</td>
+      <td class="num">${escapeHtml(metricValue(metric))}</td>
+      <td><span class="badge ${metric.status === "OK" ? "badge-ok" : "badge-null"}">${escapeHtml(metric.status || "UNAVAILABLE")}</span></td>
+      <td class="muted small">${escapeHtml(metric.formula || "")}</td>
+    </tr>`)
+    .join("");
+}
+
+async function loadResearch(force = false) {
+  if (state.research.loading) return;
+  const input = $("#research-ticker");
+  const ticker = (input?.value || state.research.ticker || "BBCA").trim().toUpperCase();
+  state.research.loading = true;
+  state.research.ticker = ticker;
+  try {
+    const [fundamentals, notes] = await Promise.all([
+      api(`/fundamentals/${encodeURIComponent(ticker)}`),
+      api(`/research/notes/${encodeURIComponent(ticker)}`).catch((error) => ({
+        status: "UNAVAILABLE",
+        reason: error.message,
+        items: [],
+      })),
+    ]);
+    state.research.data = fundamentals;
+    state.research.notes = notes;
+    renderResearch();
+  } catch (error) {
+    toast(error.message, true);
+    state.research.data = null;
+    renderResearch();
+  } finally {
+    state.research.loading = false;
+  }
+}
+
+function renderResearchNotes() {
+  const data = state.research.notes;
+  const target = $("#research-workspace");
+  const status = $("#research-notes-status");
+  if (!target) return;
+  if (!data || data.status !== "OK") {
+    if (status) status.textContent = data?.status || "UNAVAILABLE";
+    target.textContent = data?.reason || "Belum ada catatan riset terpasang.";
+    return;
+  }
+  if (status) status.textContent = "OK";
+  target.innerHTML = data.items.map((item) => `
+    <div class="note-item">
+      <div class="note-meta">${escapeHtml(item.section)} · rev ${item.revision} · ${escapeHtml(item.updated_at)}</div>
+      <div>${escapeHtml(item.content)}</div>
+      ${item.source_ref ? `<div class="note-source">Source: ${escapeHtml(item.source_ref)}</div>` : ""}
+    </div>`).join("");
+}
+
+function renderResearch() {
+  const data = state.research.data;
+  const strip = $("#research-strip");
+  const metrics = $("#research-metrics");
+  const valuation = $("#research-valuation");
+  const notes = $("#research-notes");
+  const status = $("#research-status");
+  renderResearchNotes();
+  if (!data) {
+    if (strip) strip.innerHTML = metricCard("Company Research", "—", "Belum dimuat");
+    if (metrics) metrics.innerHTML = '<tr><td colspan="4" class="empty">Belum dimuat.</td></tr>';
+    return;
+  }
+  if (status) status.textContent = data.status || "UNAVAILABLE";
+  if (strip) {
+    const summary = data.metric_summary || { available: [], unavailable: [] };
+    strip.innerHTML = [
+      metricCard("Ticker", data.ticker || state.research.ticker, data.current_period?.period_end || "—"),
+      metricCard("Status", data.status || "UNAVAILABLE", "not_for_trading=true"),
+      metricCard("Available", String((summary.available || []).length), "metrics usable"),
+      metricCard("Unavailable", String((summary.unavailable || []).length), "missing inputs"),
+    ].join("");
+  }
+  if (data.status === "UNAVAILABLE") {
+    if (metrics) metrics.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(data.reason || "Data fundamental tidak tersedia.")}</td></tr>`;
+    if (valuation) valuation.textContent = data.reason || "Data fundamental tidak tersedia.";
+    if (notes) notes.textContent = data.source_policy || "Tidak ada data yang difabrikasi.";
+    return;
+  }
+  if (metrics) metrics.innerHTML = metricRows(data.metrics);
+  const value = data.valuation || {};
+  if (valuation) {
+    if (value.status === "OK") {
+      const owner = value.owner_earnings || {};
+      const scenarios = (value.scenarios || []).map((item) => {
+        const intrinsic = item.intrinsic_value_per_share;
+        return `<tr><td>${escapeHtml(item.name)}</td><td class="num">${fmtPrice(intrinsic)}</td><td class="num">${fmtPct(item.margin_of_safety)}</td></tr>`;
+      }).join("");
+      valuation.innerHTML = `
+        <dl class="kv">
+          <dt>Owner earnings</dt><dd>${fmtCompact(owner.value)}</dd>
+          <dt>Market price</dt><dd>${fmtPrice(value.market_price)}</dd>
+        </dl>
+        <table class="data-table compact"><thead><tr><th>Scenario</th><th class="num">Intrinsic</th><th class="num">MoS</th></tr></thead><tbody>${scenarios}</tbody></table>
+        <p class="hint">${escapeHtml(value.disclaimer || "")}</p>`;
+    } else {
+      valuation.textContent = value.reason || "DCF tidak tersedia tanpa asumsi eksplisit.";
+    }
+  }
+  if (notes) {
+    const warnings = (value.missing_data_warnings || []).slice(0, 5).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    notes.innerHTML = `
+      <dl class="kv">
+        <dt>Period</dt><dd>${escapeHtml(data.current_period?.period_end || "—")}</dd>
+        <dt>Currency</dt><dd>${escapeHtml(data.current_period?.currency || "—")}</dd>
+        <dt>Sources</dt><dd>${escapeHtml((data.current_period?.source_documents || []).join(", ") || "—")}</dd>
+      </dl>
+      ${warnings ? `<ul class="hint">${warnings}</ul>` : ""}
+      <p class="hint">${escapeHtml(data.disclaimer || "")}</p>`;
+  }
+}
+
+function flowPanel(payload) {
+  const summary = payload?.summary || {};
+  if (summary.status !== "OK") {
+    return `<p class="hint">${escapeHtml(summary.reason || "Data flow tidak tersedia.")}</p>`;
+  }
+  const investors = (summary.by_investor_class || []).map((row) => `<tr><td>${escapeHtml(row.investor_class)}</td><td class="num">${fmtCompact(row.net_value)}</td><td class="num">${fmtCompact(row.gross_value)}</td></tr>`).join("");
+  const brokers = (summary.by_broker || []).slice(0, 5).map((row) => `<tr><td>${escapeHtml(row.broker_code)}</td><td class="num">${fmtCompact(row.net_value)}</td></tr>`).join("");
+  return `
+    <dl class="kv">
+      <dt>Net flow</dt><dd>${fmtCompact(summary.net_value)}</dd>
+      <dt>Gross flow</dt><dd>${fmtCompact(summary.gross_value)}</dd>
+      <dt>Net / gross</dt><dd>${fmtPct(summary.net_to_gross)}</dd>
+      <dt>Sessions</dt><dd>${summary.sessions ?? "—"}</dd>
+      <dt>Top-1 broker share</dt><dd>${fmtPct(summary.broker_concentration?.average_top1_gross_share)}</dd>
+    </dl>
+    <table class="data-table compact"><thead><tr><th>Investor class</th><th class="num">Net</th><th class="num">Gross</th></tr></thead><tbody>${investors || '<tr><td colspan="3" class="empty">Tidak ada data.</td></tr>'}</tbody></table>
+    <table class="data-table compact"><thead><tr><th>Broker</th><th class="num">Net</th></tr></thead><tbody>${brokers || '<tr><td colspan="2" class="empty">Tidak ada broker.</td></tr>'}</tbody></table>
+    <p class="hint">${escapeHtml(summary.interpretation_boundary || "")}</p>`;
+}
+
+async function loadFlow(force = false) {
+  if (state.flow.loading) return;
+  const ticker = ($("#flow-ticker")?.value || state.flow.ticker || "BBCA").trim().toUpperCase();
+  state.flow.loading = true;
+  state.flow.ticker = ticker;
+  try {
+    const [market, stock] = await Promise.all([
+      api("/capital-flow/market"),
+      api(`/capital-flow/${encodeURIComponent(ticker)}`),
+    ]);
+    state.flow.market = market;
+    state.flow.stock = stock;
+    renderFlow();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.flow.loading = false;
+  }
+}
+
+function renderFlow() {
+  const market = state.flow.market;
+  const stock = state.flow.stock;
+  const marketSummary = market?.summary || {};
+  const stockSummary = stock?.summary || {};
+  $("#flow-market-status").textContent = marketSummary.status || "UNAVAILABLE";
+  $("#flow-stock-status").textContent = stockSummary.status || "UNAVAILABLE";
+  $("#flow-market").innerHTML = flowPanel(market);
+  $("#flow-stock").innerHTML = flowPanel(stock);
+  const net = stockSummary.net_value ?? marketSummary.net_value;
+  $("#flow-strip").innerHTML = [
+    metricCard("Ticker", state.flow.ticker, "stock scope"),
+    metricCard("Net flow", fmtCompact(net), stockSummary.status || "UNAVAILABLE"),
+    metricCard("Gross flow", fmtCompact(stockSummary.gross_value ?? marketSummary.gross_value), "aggregated"),
+    metricCard("Provider", market?.provider?.status || "UNAVAILABLE", "manual only"),
+  ].join("");
+  $("#flow-note").textContent = stockSummary.interpretation_boundary || marketSummary.interpretation_boundary || "Net flow bukan identitas investor.";
+}
+
+async function loadPortfolioList(force = false) {
+  if (state.portfolio.loading) return;
+  state.portfolio.loading = true;
+  try {
+    const payload = await api("/portfolio");
+    state.portfolio.items = payload.items || [];
+    const select = $("#portfolio-select");
+    if (select) {
+      select.innerHTML = state.portfolio.items.length
+        ? state.portfolio.items.map((item) => `<option value="${escapeHtml(item.portfolio_id)}">${escapeHtml(item.name || item.portfolio_id)} (${escapeHtml(item.portfolio_type)})</option>`).join("")
+        : '<option value="">Belum ada portfolio</option>';
+      if (state.portfolio.items.length) {
+        if (!state.portfolio.selected) state.portfolio.selected = state.portfolio.items[0].portfolio_id;
+        select.value = state.portfolio.selected;
+      }
+    }
+    if (state.portfolio.items.length) await loadPortfolioReport(false);
+    else renderPortfolio();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.portfolio.loading = false;
+  }
+}
+
+async function loadPortfolioReport(force = false) {
+  const id = state.portfolio.selected || $("#portfolio-select")?.value;
+  if (!id) {
+    renderPortfolio();
+    return;
+  }
+  state.portfolio.selected = id;
+  try {
+    state.portfolio.data = await api(`/portfolio/${encodeURIComponent(id)}`);
+    renderPortfolio();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function renderPortfolio() {
+  const data = state.portfolio.data;
+  const holdings = $("#portfolio-holdings");
+  const performance = $("#portfolio-performance");
+  if (!data) {
+    $("#portfolio-status").textContent = "UNAVAILABLE";
+    $("#portfolio-strip").innerHTML = metricCard("Portfolio", "—", "Belum ada ledger");
+    holdings.innerHTML = '<tr><td colspan="5" class="empty">Belum ada portfolio terpasang.</td></tr>';
+    performance.textContent = "Tidak ada data portfolio.";
+    return;
+  }
+  if (data.status === "UNAVAILABLE") {
+    $("#portfolio-status").textContent = "UNAVAILABLE";
+    $("#portfolio-strip").innerHTML = metricCard("Portfolio", state.portfolio.selected, data.reason || "unavailable");
+    holdings.innerHTML = `<tr><td colspan="5" class="empty">${escapeHtml(data.reason || "Tidak tersedia.")}</td></tr>`;
+    performance.textContent = data.reason || "Tidak tersedia.";
+    return;
+  }
+  $("#portfolio-status").textContent = data.status;
+  const snapshot = data.snapshot || {};
+  $("#portfolio-strip").innerHTML = [
+    metricCard("Total value", fmtCompact(snapshot.total_value), snapshot.missing_prices?.length ? "partial" : "marked to market"),
+    metricCard("Cash", fmtCompact(snapshot.cash), "ledger cash"),
+    metricCard("Realized P&L", fmtCompact(snapshot.realized_pnl), "FIFO"),
+    metricCard("Dividend income", fmtCompact(snapshot.dividend_income), "gross"),
+  ].join("");
+  holdings.innerHTML = (snapshot.holdings || []).length
+    ? snapshot.holdings.map((item) => `<tr><td>${escapeHtml(item.ticker)}</td><td class="num">${item.quantity}</td><td class="num">${fmtPrice(item.average_cost)}</td><td class="num">${fmtCompact(item.market_value)}</td><td class="num ${valueClass(item.unrealized_pnl)}">${fmtCompact(item.unrealized_pnl)}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="empty">Tidak ada holding.</td></tr>';
+  const perf = data.performance || {};
+  const twr = perf.twr || {};
+  const mwr = perf.mwr || {};
+  performance.innerHTML = `
+    <dl class="kv">
+      <dt>TWR</dt><dd>${twr.status === "OK" ? fmtPct(twr.twr) : escapeHtml(twr.reason || "UNAVAILABLE")}</dd>
+      <dt>MWR / XIRR</dt><dd>${mwr.status === "OK" ? fmtPct(mwr.mwr) : escapeHtml(mwr.reason || "UNAVAILABLE")}</dd>
+      <dt>Missing prices</dt><dd>${escapeHtml((snapshot.missing_prices || []).join(", ") || "—")}</dd>
+    </dl>
+    <p class="hint">${escapeHtml(perf.difference_note || "")}</p>`;
+}
+
+async function loadRisk(force = false) {
+  if (state.risk.loading) return;
+  state.risk.loading = true;
+  $("#risk-status").textContent = "RUNNING";
+  try {
+    state.risk.data = await api("/risk/lab");
+    renderRisk();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.risk.loading = false;
+  }
+}
+
+function renderRisk() {
+  const data = state.risk.data;
+  if (!data || data.status !== "OK") {
+    $("#risk-status").textContent = data?.status || "UNAVAILABLE";
+    $("#risk-strip").innerHTML = metricCard("Risk Lab", "—", data?.reason || "Belum dijalankan");
+    $("#risk-weights").innerHTML = `<tr><td colspan="3" class="empty">${escapeHtml(data?.reason || "Belum dijalankan.")}</td></tr>`;
+    $("#risk-metrics").textContent = data?.reason || "Belum dijalankan.";
+    $("#risk-montecarlo").textContent = data?.reason || "Belum dijalankan.";
+    return;
+  }
+  $("#risk-status").textContent = "OK";
+  const rows = [];
+  ["minimum_variance", "maximum_sharpe", "risk_parity"].forEach((name) => {
+    const weights = data[name]?.weights || {};
+    const entries = Object.entries(weights)
+      .filter(([, weight]) => Number(weight) > 0.001)
+      .sort((a, b) => Number(b[1]) - Number(a[1]));
+    const visible = entries.slice(0, 6);
+    visible.forEach(([ticker, weight]) => {
+      rows.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(ticker)}</td><td class="num">${fmtPct(weight)}</td></tr>`);
+    });
+    if (entries.length > visible.length) {
+      const other = entries.slice(6).reduce((sum, [, weight]) => sum + Number(weight), 0);
+      rows.push(`<tr><td>${escapeHtml(name)}</td><td>others (${entries.length - 6})</td><td class="num">${fmtPct(other)}</td></tr>`);
+    }
+  });
+  $("#risk-weights").innerHTML = rows.join("") || '<tr><td colspan="3" class="empty">Tidak ada weight.</td></tr>';
+  const metrics = data.equal_weight_risk || {};
+  $("#risk-strip").innerHTML = [
+    metricCard("Assets", String((data.universe || []).length), `${data.observations} observations`),
+    metricCard("Annual return", fmtPct(metrics.annualized_return), "equal weight"),
+    metricCard("Annual volatility", fmtPct(metrics.annualized_volatility, 2, false), "equal weight"),
+    metricCard("Max drawdown", fmtPct(metrics.max_drawdown), "equal weight"),
+  ].join("");
+  $("#risk-metrics").innerHTML = `<dl class="kv">
+    <dt>Sharpe</dt><dd>${fmtSigned(metrics.sharpe)}</dd>
+    <dt>Sortino</dt><dd>${fmtSigned(metrics.sortino)}</dd>
+    <dt>Calmar</dt><dd>${fmtSigned(metrics.calmar)}</dd>
+    <dt>Observations</dt><dd>${metrics.observations ?? "—"}</dd>
+  </dl><p class="hint">${escapeHtml(data.assumptions || "")}</p>`;
+  const mc = data.monte_carlo || {};
+  const p = mc.terminal_percentiles || {};
+  $("#risk-montecarlo").innerHTML = `<dl class="kv">
+    <dt>5th percentile</dt><dd>${fmtCompact(p.p5)}</dd>
+    <dt>Median</dt><dd>${fmtCompact(p.p50)}</dd>
+    <dt>95th percentile</dt><dd>${fmtCompact(p.p95)}</dd>
+    <dt>Probability of loss</dt><dd>${fmtPct(mc.probability_of_loss)}</dd>
+    <dt>Seed</dt><dd>${mc.seed ?? "—"}</dd>
+  </dl><p class="hint">${escapeHtml(mc.assumptions || "")}</p>`;
+}
+
+async function loadMacro(force = false) {
+  if (state.macro.loading) return;
+  state.macro.loading = true;
+  try {
+    state.macro.data = await api("/macro");
+    renderMacro();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.macro.loading = false;
+  }
+}
+
+function renderMacro() {
+  const data = state.macro.data;
+  const status = data?.status === "available" ? "AVAILABLE" : "UNAVAILABLE";
+  $("#macro-status").textContent = status;
+  $("#macro-strip").innerHTML = [
+    metricCard("Macro", status, data?.reason || "cross-asset"),
+    metricCard("Available", String(data?.available_count ?? 0), `of ${data?.total_count ?? 9}`),
+    metricCard("Causation", "NO", "context only"),
+    metricCard("As of", data?.as_of || "—", "native units"),
+  ].join("");
+  const indicators = data?.indicators || [];
+  $("#macro-indicators").innerHTML = indicators.length
+    ? indicators.map((item) => `<tr><td>${escapeHtml(item.code)}</td><td>${escapeHtml(item.label)}</td><td class="num">${item.status === "available" ? fmtPrice(item.value) : "—"}</td><td class="num">${item.status === "available" ? fmtPct(item.returns?.["5d"]) : "—"}</td><td>${escapeHtml(item.status)}</td></tr>`).join("")
+    : '<tr><td colspan="5" class="empty">Tidak ada data verified.</td></tr>';
+  const correlation = data?.cross_asset_correlation;
+  $("#macro-correlation").innerHTML = correlation
+    ? `<pre class="json-block">${escapeHtml(JSON.stringify(correlation, null, 2))}</pre><p class="hint">${escapeHtml(data.warning || "")}</p>`
+    : `<p class="hint">${escapeHtml(data?.reason || "Belum ada history yang cukup untuk korelasi.")}</p>`;
+  $("#macro-note").textContent = data?.currency_note || "Tidak ada FX conversion yang difabrikasi.";
+}
+
+async function loadReports(force = false) {
+  if (state.reports.loading) return;
+  state.reports.loading = true;
+  try {
+    state.reports.data = await api("/research/latest");
+    renderReports();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    state.reports.loading = false;
+  }
+}
+
+function renderReports() {
+  const data = state.reports.data;
+  if (!data) return;
+  const status = data.status || "NOT_VALIDATED";
+  $("#reports-status").textContent = status;
+  $("#reports-strip").innerHTML = [
+    metricCard("Research", status, "not_for_trading"),
+    metricCard("Available", data.available ? "YES" : "NO", "local report"),
+    metricCard("Validation", data.acceptance?.validated ? "YES" : "NO", "acceptance"),
+    metricCard("Target", data.target?.name || "—", "research only"),
+  ].join("");
+  $("#reports-content").innerHTML = `<pre class="json-block">${escapeHtml(JSON.stringify(data, null, 2))}</pre>`;
+}
+
+/* ------------------------------------------------------------------ */
 /* Command palette                                                     */
 /* ------------------------------------------------------------------ */
 const PALETTE_VIEWS = [
   { kind: "view", label: "Market Overview", view: "overview", meta: "01" },
   { kind: "view", label: "Market Monitor", view: "monitor", meta: "02" },
   { kind: "view", label: "Stock Explorer", view: "explorer", meta: "03" },
-  { kind: "view", label: "Watchlist", view: "watchlist", meta: "04" },
-  { kind: "view", label: "Data Health", view: "health", meta: "05" },
+  { kind: "view", label: "Company Research", view: "research", meta: "04" },
+  { kind: "view", label: "Capital Flow", view: "flow", meta: "05" },
+  { kind: "view", label: "Portfolio", view: "portfolio", meta: "06" },
+  { kind: "view", label: "Quant Risk Lab", view: "risk", meta: "07" },
+  { kind: "view", label: "Macro Context", view: "macro", meta: "08" },
+  { kind: "view", label: "Watchlist", view: "watchlist", meta: "09" },
+  { kind: "view", label: "Research Reports", view: "reports", meta: "10" },
+  { kind: "view", label: "Data Health", view: "health", meta: "11" },
 ];
 
 function openPalette() {
@@ -1745,6 +2170,16 @@ function bindEvents() {
     loadIntelligence(true);
   });
   $("#explorer-refresh").addEventListener("click", () => loadExplorer());
+  $("#research-load").addEventListener("click", () => loadResearch(true));
+  $("#flow-load").addEventListener("click", () => loadFlow(true));
+  $("#portfolio-load").addEventListener("click", () => loadPortfolioReport(true));
+  $("#portfolio-select").addEventListener("change", (event) => {
+    state.portfolio.selected = event.target.value;
+    loadPortfolioReport(true);
+  });
+  $("#risk-load").addEventListener("click", () => loadRisk(true));
+  $("#macro-load").addEventListener("click", () => loadMacro(true));
+  $("#reports-load").addEventListener("click", () => loadReports(true));
   $("#health-refresh").addEventListener("click", () => loadHealth(true));
   $("#watchlist-clear").addEventListener("click", () => {
     state.watchlist = [];

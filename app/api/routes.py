@@ -14,15 +14,21 @@ from app.services.market_data import (
     MarketDataRepository,
     TickerNotFoundError,
 )
+from app.services.research_suite import ResearchSuite
 
 
 router = APIRouter(prefix="/api", tags=["market-data"])
 
 _TICKER_RE = re.compile(r"^[A-Z0-9]{1,12}$")
+_PORTFOLIO_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def get_repository(request: Request) -> MarketDataRepository:
     return request.app.state.repository
+
+
+def get_suite(request: Request) -> ResearchSuite:
+    return request.app.state.research_suite
 
 
 def _validated_ticker(repo: MarketDataRepository, ticker: str) -> str:
@@ -160,3 +166,90 @@ def market_intelligence(request: Request) -> dict:
 @router.get("/research/latest", summary="Latest research-only model report")
 def research_latest() -> dict:
     return load_latest_research_report()
+
+
+@router.get("/capabilities", summary="Integrated research-suite availability")
+def capabilities(request: Request) -> dict:
+    return get_suite(request).capabilities()
+
+
+@router.get("/fundamentals/{ticker}", summary="Fundamental metrics and optional DCF")
+def fundamentals(
+    ticker: str,
+    request: Request,
+    wacc: Optional[float] = Query(default=None, gt=0, le=1),
+    growth_rate: Optional[float] = Query(default=None, ge=-0.99, le=1),
+    terminal_growth: Optional[float] = Query(default=None, ge=-0.99, le=1),
+    fcff_base: Optional[float] = Query(default=None),
+    forecast_years: int = Query(default=5, ge=1, le=30),
+    tax_rate: Optional[float] = Query(default=None, ge=0, le=1),
+    maintenance_capex: Optional[float] = Query(default=None),
+    working_capital_change: Optional[float] = Query(default=None),
+) -> dict:
+    dcf = None
+    if all(value is not None for value in (wacc, growth_rate, terminal_growth, fcff_base)):
+        dcf = {
+            "wacc": wacc,
+            "growth_rate": growth_rate,
+            "terminal_growth": terminal_growth,
+            "fcff_base": fcff_base,
+            "forecast_years": forecast_years,
+            "tax_rate": tax_rate,
+            "maintenance_capex": maintenance_capex,
+            "working_capital_change": working_capital_change,
+        }
+    symbol = ticker.strip().upper()
+    if not _TICKER_RE.fullmatch(symbol):
+        raise HTTPException(status_code=422, detail="Ticker tidak valid.")
+    return get_suite(request).fundamental_analysis(symbol, dcf=dcf)
+
+
+@router.get("/capital-flow/market", summary="Market-wide capital-flow context")
+def capital_flow_market(request: Request) -> dict:
+    return get_suite(request).capital_flow_market()
+
+
+@router.get("/capital-flow/{ticker}", summary="Stock-level capital-flow context")
+def capital_flow_stock(ticker: str, request: Request) -> dict:
+    symbol = ticker.strip().upper()
+    if not _TICKER_RE.fullmatch(symbol):
+        raise HTTPException(status_code=422, detail="Ticker tidak valid.")
+    return get_suite(request).capital_flow_stock(symbol)
+
+
+@router.get("/portfolio", summary="Installed personal/model portfolios")
+def portfolio_list(request: Request) -> dict:
+    suite = get_suite(request)
+    return {"status": "OK", "items": suite.portfolio_list()}
+
+
+@router.get("/portfolio/{portfolio_id}", summary="Portfolio holdings and performance")
+def portfolio_detail(portfolio_id: str, request: Request) -> dict:
+    value = portfolio_id.strip()
+    if not _PORTFOLIO_RE.fullmatch(value):
+        raise HTTPException(status_code=422, detail="Portfolio ID tidak valid.")
+    return get_suite(request).portfolio_report(value)
+
+
+@router.get("/risk/lab", summary="Optimization, risk, and simulation lab")
+def risk_lab(
+    request: Request,
+    tickers: Optional[str] = Query(default=None, max_length=512),
+) -> dict:
+    parsed = [part.strip().upper() for part in tickers.split(",") if part.strip()] if tickers else None
+    if parsed and any(not _TICKER_RE.fullmatch(symbol) for symbol in parsed):
+        raise HTTPException(status_code=422, detail="Ticker risk lab tidak valid.")
+    return get_suite(request).risk_lab(parsed)
+
+
+@router.get("/macro", summary="Macro and cross-asset context")
+def macro_context(request: Request) -> dict:
+    return get_suite(request).macro_summary()
+
+
+@router.get("/research/notes/{ticker}", summary="Owner research notes by ticker")
+def research_notes(ticker: str, request: Request) -> dict:
+    symbol = ticker.strip().upper()
+    if not _TICKER_RE.fullmatch(symbol):
+        raise HTTPException(status_code=422, detail="Ticker tidak valid.")
+    return get_suite(request).research_notes(symbol)

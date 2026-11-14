@@ -30,11 +30,29 @@
         <a href="#explorer" data-view="explorer" class="tab">
           <span class="nav-index">03</span><span class="nav-text">Stock Explorer</span>
         </a>
+        <a href="#research" data-view="research" class="tab">
+          <span class="nav-index">04</span><span class="nav-text">Company Research</span>
+        </a>
+        <a href="#flow" data-view="flow" class="tab">
+          <span class="nav-index">05</span><span class="nav-text">Capital Flow</span>
+        </a>
+        <a href="#portfolio" data-view="portfolio" class="tab">
+          <span class="nav-index">06</span><span class="nav-text">Portfolio</span>
+        </a>
+        <a href="#risk" data-view="risk" class="tab">
+          <span class="nav-index">07</span><span class="nav-text">Quant Risk Lab</span>
+        </a>
+        <a href="#macro" data-view="macro" class="tab">
+          <span class="nav-index">08</span><span class="nav-text">Macro Context</span>
+        </a>
         <a href="#watchlist" data-view="watchlist" class="tab">
-          <span class="nav-index">04</span><span class="nav-text">Watchlist <span class="count" id="watch-count">0</span></span>
+          <span class="nav-index">09</span><span class="nav-text">Watchlist <span class="count" id="watch-count">0</span></span>
+        </a>
+        <a href="#reports" data-view="reports" class="tab">
+          <span class="nav-index">10</span><span class="nav-text">Research Reports</span>
         </a>
         <a href="#health" data-view="health" class="tab">
-          <span class="nav-index">05</span><span class="nav-text">Data Health</span>
+          <span class="nav-index">11</span><span class="nav-text">Data Health</span>
         </a>
       </nav>
 
@@ -392,6 +410,171 @@
                 <tbody id="watchlist-body"><tr><td colspan="8" class="empty">Watchlist kosong.</td></tr></tbody>
               </table>
             </div>
+          </article>
+        </section>
+
+        <section class="view" id="view-research" aria-labelledby="research-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Company Research // Fundamentals & Valuation</div>
+              <h2 id="research-title">Company Research</h2>
+              <p class="view-sub">Metrik dan valuasi hanya muncul dari data fundamental manual yang terverifikasi. DCF membutuhkan asumsi eksplisit.</p>
+            </div>
+            <div class="view-actions">
+              <label class="field"><span>Ticker</span><input id="research-ticker" type="text" value="BBCA" maxlength="12" autocomplete="off"></label>
+              <button class="btn btn-ghost" id="research-load" type="button">Load research</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="research-strip"></div>
+          <div class="monitor-intel-grid">
+            <article class="panel">
+              <div class="panel-head"><h3>Fundamental Metrics</h3><span class="panel-tag" id="research-status">UNAVAILABLE</span></div>
+              <div class="table-wrap"><table class="data-table compact"><thead><tr><th>Metric</th><th class="num">Value</th><th>Status</th><th>Formula</th></tr></thead><tbody id="research-metrics"><tr><td colspan="4" class="empty">Belum dimuat.</td></tr></tbody></table></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Valuation Scenarios</h3><span class="panel-tag">DCF</span></div>
+              <div id="research-valuation" class="report-block">Belum ada asumsi DCF.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Availability & Assumptions</h3><span class="panel-tag">AUDIT</span></div>
+              <div id="research-notes" class="report-block">Tidak ada data fundamental terpasang.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Research Notes</h3><span class="panel-tag" id="research-notes-status">UNAVAILABLE</span></div>
+              <div id="research-workspace" class="report-block">Belum ada catatan riset.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-flow" aria-labelledby="flow-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Capital Flow // Market & Stock Level</div>
+              <h2 id="flow-title">Capital Flow</h2>
+              <p class="view-sub">Net flow adalah agregasi analitis, bukan bukti identitas investor. Broker code bukan beneficial owner.</p>
+            </div>
+            <div class="view-actions">
+              <label class="field"><span>Ticker</span><input id="flow-ticker" type="text" value="BBCA" maxlength="12" autocomplete="off"></label>
+              <button class="btn btn-ghost" id="flow-load" type="button">Load flow</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="flow-strip"></div>
+          <div class="monitor-intel-grid">
+            <article class="panel">
+              <div class="panel-head"><h3>Market Flow</h3><span class="panel-tag" id="flow-market-status">UNAVAILABLE</span></div>
+              <div id="flow-market" class="report-block">Belum dimuat.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Stock Flow</h3><span class="panel-tag" id="flow-stock-status">UNAVAILABLE</span></div>
+              <div id="flow-stock" class="report-block">Belum dimuat.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Interpretation Boundary</h3><span class="panel-tag">POLICY</span></div>
+              <div id="flow-note" class="report-block">Data flow belum terpasang. Tidak ada nilai palsu yang dibuat.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-portfolio" aria-labelledby="portfolio-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Portfolio // Personal & Model Ledgers</div>
+              <h2 id="portfolio-title">Portfolio</h2>
+              <p class="view-sub">Ledger manual, cost basis FIFO, TWR dan XIRR. Tidak ada broker connection atau order routing.</p>
+            </div>
+            <div class="view-actions">
+              <label class="field"><span>Portfolio</span><select id="portfolio-select"><option value="">Belum ada portfolio</option></select></label>
+              <button class="btn btn-ghost" id="portfolio-load" type="button">Load portfolio</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="portfolio-strip"></div>
+          <div class="monitor-intel-grid">
+            <article class="panel">
+              <div class="panel-head"><h3>Holdings</h3><span class="panel-tag" id="portfolio-status">UNAVAILABLE</span></div>
+              <div class="table-wrap"><table class="data-table compact"><thead><tr><th>Ticker</th><th class="num">Qty</th><th class="num">Avg cost</th><th class="num">Market value</th><th class="num">Unrealized</th></tr></thead><tbody id="portfolio-holdings"><tr><td colspan="5" class="empty">Belum dimuat.</td></tr></tbody></table></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Performance</h3><span class="panel-tag">TWR / XIRR</span></div>
+              <div id="portfolio-performance" class="report-block">Belum dimuat.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Ledger Policy</h3><span class="panel-tag">FIFO</span></div>
+              <div id="portfolio-note" class="report-block">Fees masuk cost basis pembelian; fees/taxes penjualan mengurangi proceeds.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-risk" aria-labelledby="risk-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Quant Risk Lab // Reproducible Analytics</div>
+              <h2 id="risk-title">Quant Risk Lab</h2>
+              <p class="view-sub">Historical sample mean/covariance. Monte Carlo adalah simulasi, bukan prediksi.</p>
+            </div>
+            <div class="view-actions">
+              <button class="btn btn-ghost" id="risk-load" type="button">Run risk lab</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="risk-strip"></div>
+          <div class="monitor-intel-grid">
+            <article class="panel">
+              <div class="panel-head"><h3>Optimizer Weights</h3><span class="panel-tag" id="risk-status">IDLE</span></div>
+              <div class="table-wrap"><table class="data-table compact"><thead><tr><th>Portfolio</th><th>Ticker</th><th class="num">Weight</th></tr></thead><tbody id="risk-weights"><tr><td colspan="3" class="empty">Belum dijalankan.</td></tr></tbody></table></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Equal-Weight Risk</h3><span class="panel-tag">METRICS</span></div>
+              <div id="risk-metrics" class="report-block">Belum dijalankan.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Monte Carlo</h3><span class="panel-tag">SIMULATION</span></div>
+              <div id="risk-montecarlo" class="report-block">Belum dijalankan.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-macro" aria-labelledby="macro-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Macro Context // Cross-Asset</div>
+              <h2 id="macro-title">Macro Context</h2>
+              <p class="view-sub">Korelasi bukan kausalitas. Nilai tetap dalam unit dan mata uang aslinya.</p>
+            </div>
+            <div class="view-actions">
+              <button class="btn btn-ghost" id="macro-load" type="button">Load macro</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="macro-strip"></div>
+          <div class="monitor-intel-grid">
+            <article class="panel">
+              <div class="panel-head"><h3>Indicators</h3><span class="panel-tag" id="macro-status">UNAVAILABLE</span></div>
+              <div class="table-wrap"><table class="data-table compact"><thead><tr><th>Code</th><th>Label</th><th class="num">Value</th><th class="num">5D</th><th>Status</th></tr></thead><tbody id="macro-indicators"><tr><td colspan="5" class="empty">Belum dimuat.</td></tr></tbody></table></div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Correlation</h3><span class="panel-tag">CONTEXT</span></div>
+              <div id="macro-correlation" class="report-block">Belum dimuat.</div>
+            </article>
+            <article class="panel">
+              <div class="panel-head"><h3>Provider Boundary</h3><span class="panel-tag">LICENSING</span></div>
+              <div id="macro-note" class="report-block">Macro provider otomatis dinonaktifkan secara default.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="view" id="view-reports" aria-labelledby="reports-title">
+          <div class="view-head">
+            <div>
+              <div class="eyebrow">Research Reports // Model Evidence</div>
+              <h2 id="reports-title">Research Reports</h2>
+              <p class="view-sub">Laporan riset ML berstatus NOT_VALIDATED dan tidak boleh dipakai sebagai sinyal trading.</p>
+            </div>
+            <div class="view-actions">
+              <button class="btn btn-ghost" id="reports-load" type="button">Load report</button>
+            </div>
+          </div>
+          <div class="stat-strip" id="reports-strip"></div>
+          <article class="panel">
+            <div class="panel-head"><h3>Latest Research Payload</h3><span class="panel-tag" id="reports-status">NOT_VALIDATED</span></div>
+            <div id="reports-content" class="report-block">Belum dimuat.</div>
           </article>
         </section>
 

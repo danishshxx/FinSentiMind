@@ -1067,3 +1067,37 @@ kbd {
 .source-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .source-name { font-family: var(--mono); font-size: 10px; color: #c6d3e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .source-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; color: var(--faint); font-family: var(--mono); font-size: 8.5px; }
+
+/* Integrated research suite */
+.rail { overflow-y: auto; }
+.view-actions .field { min-width: 150px; }
+.view-actions .field input,
+.view-actions .field select { min-width: 130px; }
+.report-block { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.report-block .kv { margin-bottom: 8px; }
+.report-block table { margin-top: 8px; }
+.report-block .hint { margin: 8px 0 0; }
+.json-block {
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.012);
+  color: #a9bacb;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.badge-ok { color: var(--up); border-color: rgba(34, 197, 129, 0.35); }
+@media (max-width: 900px) {
+  .rail { overflow-y: visible; overflow-x: auto; }
+}
+
+.note-item { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.note-item:last-child { border-bottom: 0; }
+.note-meta { color: var(--faint); font-family: var(--mono); font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+.note-source { color: var(--faint); font-size: 9px; margin-top: 4px; }
