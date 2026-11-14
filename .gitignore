@@ -254,3 +254,6 @@ artifacts/
 !.env.example
 
 ml/data/
+
+# Local operational audit logs
+ml/logs/
