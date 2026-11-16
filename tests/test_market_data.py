@@ -199,6 +199,17 @@ def test_data_health_reuses_validator(repo: MarketDataRepository):
     names = {check["name"] for check in health["checks"]}
     assert "freshness" in names
     assert "sentiment_coverage" in names
+    # Data-platform fields are additive and backward compatible.
+    assert health["generation"]["source"] == "legacy"
+    assert health["generation"]["universe_scope"] == "3 tickers"
+    assert health["coverage"]["universe_size"] == 3
+    assert health["coverage"]["price_rows"] == 21
+    assert health["coverage"]["quant_artifact_complete"] is False
+    assert health["data_classification"]["prices"] == "VERIFIED"
+    assert health["data_classification"]["quant_features"] == "UNAVAILABLE"
+    assert {"fundamentals", "capital_flow", "macro", "portfolio", "ml_research"}.issubset(
+        health["subsystems"]
+    )
 
 
 def test_missing_dataset_is_reported(tmp_path: Path):

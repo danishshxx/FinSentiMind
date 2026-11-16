@@ -1528,7 +1528,32 @@ function renderHealth() {
 
   $("#health-generated").textContent = `Dijalankan ${fmtDateTime(health.generated_at)}`;
   const metrics = health.metrics || {};
+  const generation = health.generation || {};
+  const coverage = health.coverage || {};
+  const subsystems = health.subsystems || {};
+  const classification = health.data_classification || {};
+  const subsystemLabel = (name) => {
+    const status = (subsystems[name] || {}).status || "UNAVAILABLE";
+    return `${status} (${classification[name] || "—"})`;
+  };
   const kv = {
+    "Generasi aktif": generation.run_id || "—",
+    "Versi kalender": generation.calendar_version || "—",
+    "Universe scope": generation.universe_scope || "—",
+    "Data as of": fmtDate(generation.data_as_of),
+    "Refreshed at": fmtDateTime(generation.refreshed_at),
+    "Cakupan harga": `${coverage.price_rows ?? "—"} baris · ${
+      coverage.universe_size ?? "—"
+    } ticker`,
+    "Quant artifact": coverage.quant_artifact_rows
+      ? `${coverage.quant_artifact_complete ? "VERIFIED" : "PARTIAL"} (${
+          coverage.quant_artifact_rows
+        } baris)`
+      : "UNAVAILABLE",
+    "Fundamental": subsystemLabel("fundamentals"),
+    "Capital flow": subsystemLabel("capital_flow"),
+    "Macro": subsystemLabel("macro"),
+    "Research": subsystemLabel("ml_research"),
     "Tanggal awal": fmtDate(dataset.date_min),
     "Tanggal akhir": fmtDate(dataset.date_max),
     "Sesi terakhir": fmtDate(dataset.latest_trading_date),

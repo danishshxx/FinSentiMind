@@ -10,6 +10,7 @@ The repository is read-only: no method mutates a dataset.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 from dataclasses import dataclass
@@ -143,6 +144,62 @@ def _normalize_base(frame: pd.DataFrame) -> pd.DataFrame:
     if {"ticker", "trading_date"}.issubset(df.columns):
         df = df.sort_values(["ticker", "trading_date"]).reset_index(drop=True)
     return df
+
+
+def _subsystem_status() -> Dict[str, Any]:
+    """Report local subsystem availability without fabricating missing data."""
+
+    def _safe(fn):
+        try:
+            return fn()
+        except Exception as exc:  # pragma: no cover - defensive boundary
+            return {"status": "UNAVAILABLE", "reason": str(exc)}
+
+    def fundamentals():
+        from ml.fundamentals.repository import FundamentalRepository
+
+        statements = FundamentalRepository().statements()
+        return {
+            "status": "AVAILABLE" if not statements.empty else "UNAVAILABLE",
+            "rows": int(len(statements)),
+        }
+
+    def capital_flow():
+        from ml.capital_flow.repository import CapitalFlowRepository
+
+        return CapitalFlowRepository().status()
+
+    def macro():
+        from ml.macro.repository import MacroRepository
+
+        return MacroRepository().status()
+
+    def portfolio():
+        from ml.portfolio.repository import PortfolioRepository
+
+        transactions = PortfolioRepository().transactions()
+        return {
+            "status": "AVAILABLE" if not transactions.empty else "UNAVAILABLE",
+            "transactions": int(len(transactions)),
+        }
+
+    def research():
+        from ml.research.ml_pipeline import load_latest_research_report
+
+        report = load_latest_research_report()
+        acceptance = report.get("acceptance") or {}
+        return {
+            "status": acceptance.get("status") or report.get("status") or "NOT_RUN",
+            "available": bool(report.get("available")),
+        }
+
+    return {
+        "fundamentals": _safe(fundamentals),
+        "capital_flow": _safe(capital_flow),
+        "macro": _safe(macro),
+        "portfolio": _safe(portfolio),
+        "ml_research": _safe(research),
+    }
 
 
 @dataclass(frozen=True)
@@ -654,6 +711,87 @@ class MarketDataRepository:
                 calendar_trading_days = int(self._calendar["is_trading_day"].astype(bool).sum())
             calendar_latest = _date_str(self._calendar["date"].max())
 
+        calendar_version = None
+        if not self._calendar.empty and "calendar_version" in self._calendar.columns:
+            versions = [
+                str(value)
+                for value in self._calendar["calendar_version"].dropna().unique()
+            ]
+            calendar_version = versions[0] if len(versions) == 1 else None
+
+        manifest = self.active_dataset.manifest or {}
+        provenance: Dict[str, Any] = {}
+        provenance_path = self.data_dir / "provenance.json"
+        if provenance_path.exists():
+            try:
+                provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            except Exception:  # pragma: no cover - malformed provenance
+                provenance = {}
+
+        quant_path = self.data_dir / "quant_features.parquet"
+        quant_rows = None
+        if quant_path.exists():
+            try:
+                quant_rows = int(pd.read_parquet(quant_path, columns=["ticker"]).shape[0])
+            except Exception:  # pragma: no cover - unreadable optional artifact
+                quant_rows = None
+
+        price_rows = int(len(base))
+        news_rows = (
+            int((base["news_count"].fillna(0) > 0).sum())
+            if "news_count" in base.columns else 0
+        )
+        generation = {
+            "run_id": self.active_dataset.run_id,
+            "source": self.active_dataset.source,
+            "published_at": manifest.get("published_at"),
+            "refreshed_at": manifest.get("refreshed_at") or provenance.get("refreshed_at"),
+            "data_as_of": manifest.get("data_as_of") or provenance.get("data_as_of"),
+            "calendar_version": calendar_version,
+            "feature_version": provenance.get("feature_version") or FEATURE_VERSION,
+            "universe_scope": provenance.get("universe_scope") or (
+                f"{int(base['ticker'].nunique())} tickers"
+            ),
+            "checksummed_artifacts": sorted((manifest.get("artifacts") or {}).keys()),
+        }
+        coverage = {
+            "universe_size": int(base["ticker"].nunique()),
+            "price_rows": price_rows,
+            "latest_trading_date": _date_str(latest),
+            "price_freshness_days": metrics.get("age_days"),
+            "news_rows_with_news": news_rows,
+            "news_coverage_pct": metrics.get("matched_pct"),
+            "sentiment_coverage_pct": metrics.get("matched_pct"),
+            "quant_artifact_rows": quant_rows,
+            "quant_artifact_complete": (
+                quant_rows == price_rows if quant_rows is not None else False
+            ),
+        }
+        subsystems = _subsystem_status()
+        data_classification = {
+            "prices": "VERIFIED",
+            "base_dataset": "VERIFIED",
+            "daily_sentiment": "DERIVED",
+            "quant_features": "DERIVED" if quant_rows else "UNAVAILABLE",
+            "fundamentals": (
+                "DERIVED" if subsystems["fundamentals"]["status"] == "AVAILABLE"
+                else "UNAVAILABLE"
+            ),
+            "capital_flow": (
+                "VERIFIED" if subsystems["capital_flow"]["status"] == "AVAILABLE"
+                else "UNAVAILABLE"
+            ),
+            "macro": (
+                "VERIFIED" if subsystems["macro"]["status"] == "AVAILABLE"
+                else "UNAVAILABLE"
+            ),
+            "portfolio": (
+                "DERIVED" if subsystems["portfolio"]["status"] == "AVAILABLE"
+                else "UNAVAILABLE"
+            ),
+            "ml_research": "DERIVED",
+        }
+
         return {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "status": report.overall_status,
@@ -692,6 +830,10 @@ class MarketDataRepository:
                 "trading_calendar_latest": calendar_latest,
             },
             "sources": [s.to_dict() for s in sources],
+            "generation": generation,
+            "coverage": coverage,
+            "subsystems": subsystems,
+            "data_classification": data_classification,
             "notes": [
                 "Status struktural PASS berarti skema dan integritas data valid, bukan jaminan kualitas sinyal.",
                 "Freshness dihitung terhadap tanggal hari ini; dataset riset boleh lebih lama dari feed live.",
