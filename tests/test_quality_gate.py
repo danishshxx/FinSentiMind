@@ -159,33 +159,33 @@ def test_return_anomaly_nan_ignored():
 # ---------------------------------------------------------------------------
 
 def test_missing_weekday_gap_detected():
-    # Mon 2024-01-01, skip Tue/Wed, resume Thu 2024-01-04
+    # Mon 2025-01-06, skip Tue/Wed, resume Thu 2025-01-09
     df = _df([
-        _row("BBCA", "2024-01-01"),
-        _row("BBCA", "2024-01-04"),
+        _row("BBCA", "2025-01-06"),
+        _row("BBCA", "2025-01-09"),
     ])
     groups = check_missing_weekdays(df)
     # Expect 1 group covering Tue-Wed
     assert len(groups) == 1
     assert groups[0].missing_count == 2
-    assert groups[0].start == date(2024, 1, 2)
-    assert groups[0].end == date(2024, 1, 3)
+    assert groups[0].start == date(2025, 1, 7)
+    assert groups[0].end == date(2025, 1, 8)
 
 
 def test_weekend_gap_not_flagged():
-    # Fri 2024-01-05 -> Mon 2024-01-08 (no weekdays missing)
+    # Fri 2025-01-10 -> Mon 2025-01-13 (no weekdays missing)
     df = _df([
-        _row("BBCA", "2024-01-05"),
-        _row("BBCA", "2024-01-08"),
+        _row("BBCA", "2025-01-10"),
+        _row("BBCA", "2025-01-13"),
     ])
     assert check_missing_weekdays(df) == []
 
 
 def test_consecutive_dates_no_gap():
     df = _df([
-        _row("BBCA", "2024-01-01"),
-        _row("BBCA", "2024-01-02"),
-        _row("BBCA", "2024-01-03"),
+        _row("BBCA", "2025-01-06"),
+        _row("BBCA", "2025-01-07"),
+        _row("BBCA", "2025-01-08"),
     ])
     assert check_missing_weekdays(df) == []
 

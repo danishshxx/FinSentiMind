@@ -75,8 +75,8 @@ def test_zero_coverage_is_non_trading():
     assert jan7["coverage_ratio"] == 0.0
 
 
-def test_coverage_just_below_threshold_is_non_trading():
-    # 3 tickers, 2 have data on day 2 -> 0.667 < 0.9
+def test_partial_coverage_remains_verified_open_session():
+    # 3 tickers, 2 have data on day 2 -> 0.667 < 0.9, but the exchange is open.
     df = _df([
         ("A", "2025-01-06"), ("B", "2025-01-06"), ("C", "2025-01-06"),
         ("A", "2025-01-07"), ("B", "2025-01-07"),
@@ -84,7 +84,9 @@ def test_coverage_just_below_threshold_is_non_trading():
     ])
     cal = derive_trading_calendar(df, threshold=0.9)
     jan7 = cal.loc[cal["date"] == date(2025, 1, 7)].iloc[0]
-    assert jan7["is_trading_day"] == False  # noqa: E712
+    assert jan7["is_trading_day"] == True  # noqa: E712
+    assert jan7["is_exchange_open"] == True  # noqa: E712
+    assert jan7["coverage_threshold_met"] == False  # noqa: E712
     assert jan7["coverage_ratio"] == pytest.approx(2 / 3)
 
 
@@ -140,17 +142,16 @@ def test_holiday_gap_appears_as_non_trading():
     assert (weekend["is_trading_day"] == False).all()  # noqa: E712
 
 
-def test_partial_coverage_below_threshold_flagged():
-    # 30 tickers, only 20 on day 2 -> 0.667 < 0.9
+def test_partial_coverage_is_not_reclassified_as_closure():
+    # 30 tickers, only 20 on day 2 -> 0.667 < 0.9, but the exchange is open.
     df = _full_universe_prices("2025-01-06", days=1, n_tickers=30)
-    base = pd.Timestamp("2025-01-06")
-    # Day 2: only 20
     rows = [("T%02d" % i, "2025-01-07") for i in range(20)]
     df2 = _df(rows)
     combined = pd.concat([df, df2], ignore_index=True)
     cal = derive_trading_calendar(combined)
     jan7 = cal.loc[cal["date"] == date(2025, 1, 7)].iloc[0]
-    assert jan7["is_trading_day"] == False  # noqa: E712
+    assert jan7["is_trading_day"] == True  # noqa: E712
+    assert jan7["coverage_threshold_met"] == False  # noqa: E712
     assert jan7["coverage_ratio"] == pytest.approx(20 / 30)
 
 

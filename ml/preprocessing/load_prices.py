@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import json
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
 from app.database.supabase_client import fetch_all
+from ml.preprocessing.dataset_store import write_json_atomic
+from ml.preprocessing.idx_calendar import (
+    OFFICIAL_CLOSURE,
+    CalendarSource,
+    calendar_reference,
+    exchange_day_status,
+    load_calendar_source,
+)
 
 
 logger = get_logger(__name__)
@@ -43,6 +53,106 @@ OUTPUT_COLUMNS = [
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_PATH = _PROJECT_ROOT / "ml" / "data" / "prices_clean.parquet"
+
+
+class ExchangeClosureContradictionError(ValueError):
+    """Raised when an official exchange closure contains contradictory bars."""
+
+
+def filter_exchange_closures(
+    df: pd.DataFrame,
+    calendar_source: Optional[CalendarSource] = None,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Remove official-closure bars and return a full quarantine audit.
+
+    Zero-volume flat bars on verified exchange closures are excluded from the
+    canonical research dataset. A closure bar with positive volume, or a bar
+    whose OHLC is not flat, is a blocking contradiction and is never silently
+    deleted.
+    """
+    source = calendar_source or load_calendar_source()
+    if df.empty:
+        return df.copy(), df.iloc[0:0].copy()
+
+    dates = pd.to_datetime(df["trading_date"], errors="raise").dt.date
+    closures = [
+        exchange_day_status(day, source) == OFFICIAL_CLOSURE for day in dates
+    ]
+    mask = pd.Series(closures, index=df.index, dtype=bool)
+    audit = df[mask].copy()
+
+    if not audit.empty:
+        references = [calendar_reference(day, source) for day in dates[mask]]
+        audit["reason"] = "OFFICIAL_EXCHANGE_CLOSURE"
+        audit["date"] = dates[mask].astype(str)
+        audit["calendar_version"] = source.calendar_version
+        audit["source_id"] = [item["source_id"] for item in references]
+        audit["source_url"] = [item["source_url"] for item in references]
+        audit["announcement"] = [item["announcement"] for item in references]
+        audit["closure_type"] = [item["closure_type"] for item in references]
+        audit["closure_name"] = [item["closure_name"] for item in references]
+        audit["source_system"] = "supabase.harga_saham"
+
+        flat_ohlc = (
+            (audit["open"] == audit["high"])
+            & (audit["high"] == audit["low"])
+            & (audit["low"] == audit["close"])
+        )
+        contradiction = (audit["volume"] > 0) | (~flat_ohlc)
+        if contradiction.any():
+            sample = audit.loc[
+                contradiction,
+                [
+                    "ticker", "trading_date", "open", "high", "low",
+                    "close", "volume",
+                ],
+            ].head(20)
+            raise ExchangeClosureContradictionError(
+                "Official exchange closure contains positive-volume or non-flat "
+                "OHLC bars; refusing to delete silently. Sample: "
+                f"{sample.to_dict(orient='records')}"
+            )
+    return df[~mask].copy(), audit.reset_index(drop=True)
+
+
+def render_closure_audit(audit: pd.DataFrame, calendar_version: str) -> str:
+    lines = [
+        "# Exchange Closure Quarantine",
+        "",
+        f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
+        f"**Calendar version:** {calendar_version}",
+        f"**Rows excluded:** {len(audit)}",
+        "",
+        "| Ticker | Date | Open | High | Low | Close | Volume | Closure | Source |",
+        "|---|---|---:|---:|---:|---:|---:|---|---|",
+    ]
+    for _, row in audit.iterrows():
+        lines.append(
+            f"| {row['ticker']} | {row['trading_date']} | {row['open']} | "
+            f"{row['high']} | {row['low']} | {row['close']} | {row['volume']} | "
+            f"{row['closure_name']} | {row['source_id']} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_closure_audit(
+    audit: pd.DataFrame, path: Path, calendar_version: str
+) -> None:
+    if path.suffix.lower() == ".md":
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            render_closure_audit(audit, calendar_version), encoding="utf-8"
+        )
+        return
+    payload = {
+        "schema_version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "calendar_version": calendar_version,
+        "rows_excluded": int(len(audit)),
+        "records": json.loads(audit.to_json(orient="records", date_format="iso")),
+    }
+    write_json_atomic(path, payload)
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +287,18 @@ def compute_return_1d(df: pd.DataFrame) -> pd.DataFrame:
 # Orchestrator
 # ---------------------------------------------------------------------------
 
-def build_clean_dataset(df_raw: pd.DataFrame) -> pd.DataFrame:
+def build_clean_dataset(
+    df_raw: pd.DataFrame,
+    calendar_source: Optional[CalendarSource] = None,
+    quarantine_report_path: Optional[Path] = None,
+) -> pd.DataFrame:
     """
-    Compose: normalize -> cast -> sort -> return.
+    Compose: normalize -> cast -> closure quarantine -> sort -> return.
     Returns the cleaned DataFrame with stable column order.
+
+    Official-closure bars are removed before returns are computed so rolling
+    features never see holiday bars. Quarantine metadata is attached to
+    ``df.attrs``.
     """
     if df_raw.empty:
         logger.info("Empty input — returning empty cleaned dataset with schema.")
@@ -198,10 +316,24 @@ def build_clean_dataset(df_raw: pd.DataFrame) -> pd.DataFrame:
 
     df = normalize_columns(df_raw)
     df = cast_types(df)
+    source = calendar_source or load_calendar_source()
+    df, audit = filter_exchange_closures(df, calendar_source=source)
+    if not audit.empty:
+        logger.warning(
+            "Excluded %d official-closure price row(s) using calendar %s.",
+            len(audit),
+            source.calendar_version,
+        )
+        if quarantine_report_path is not None:
+            write_closure_audit(audit, quarantine_report_path, source.calendar_version)
     df = sort_prices(df)
     df = compute_return_1d(df)
     df = df[OUTPUT_COLUMNS].reset_index(drop=True)
-
+    df.attrs["closure_audit"] = json.loads(
+        audit.to_json(orient="records", date_format="iso")
+    )
+    df.attrs["closure_excluded_rows"] = int(len(audit))
+    df.attrs["calendar_version"] = source.calendar_version
     return df
 
 
@@ -224,12 +356,18 @@ def load_prices_clean(
     tickers: Optional[List[str]] = None,
     save: bool = True,
     output_path: Path = DEFAULT_OUTPUT_PATH,
+    calendar_source: Optional[CalendarSource] = None,
+    quarantine_report_path: Optional[Path] = None,
 ) -> pd.DataFrame:
     """
-    End-to-end: fetch + clean + (optional) save. Returns cleaned DataFrame.
+    End-to-end: fetch + clean + closure quarantine + (optional) save.
     """
     df_raw = load_raw_prices(tickers=tickers)
-    df = build_clean_dataset(df_raw)
+    df = build_clean_dataset(
+        df_raw,
+        calendar_source=calendar_source,
+        quarantine_report_path=quarantine_report_path,
+    )
 
     if save:
         save_parquet(df, output_path)
@@ -257,6 +395,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--no-save", action="store_true",
         help="Build and print summary but do not write Parquet.",
     )
+    parser.add_argument(
+        "--quarantine-report", type=Path, default=None,
+        help="Optional JSON/Markdown report for excluded closure bars.",
+    )
     args = parser.parse_args(argv)
 
     setup_logging()
@@ -270,6 +412,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         tickers=tickers,
         save=not args.no_save,
         output_path=args.output,
+        quarantine_report_path=args.quarantine_report,
     )
 
     if not df.empty:

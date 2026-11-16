@@ -50,7 +50,7 @@ def test_partial_cross_section_is_not_reclassified_as_holiday():
     assert audit.partial_days == 1
 
 
-def test_holiday_gap_counts_every_ticker_group():
+def test_official_holiday_is_not_counted_as_missing_provider_group():
     rows = []
     for ticker in ("A", "B", "C"):
         rows.extend([
@@ -58,8 +58,8 @@ def test_holiday_gap_counts_every_ticker_group():
             (ticker, "2025-04-21"),
         ])
     audit = audit_missing_weekday_groups(_prices(rows))
-    assert audit.total_groups == 3
-    assert audit.category_group_counts == {OFFICIAL_HOLIDAY: 3}
+    assert audit.total_groups == 0
+    assert audit.category_group_counts == {}
 
 
 def test_report_is_explicit_and_does_not_invent_closures():

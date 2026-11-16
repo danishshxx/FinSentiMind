@@ -71,6 +71,13 @@ DEFAULT_FRESHNESS_THRESHOLD_DAYS = 7
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 from ml.preprocessing.dataset_store import resolve_active_dataset_dir
+from ml.preprocessing.idx_calendar import (
+    OFFICIAL_CLOSURE,
+    UNVERIFIED,
+    WEEKEND,
+    exchange_day_status,
+    load_calendar_source,
+)
 
 _ACTIVE_DATA_DIR = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data")
 DEFAULT_BASE_PATH = _ACTIVE_DATA_DIR / "base_dataset.parquet"
@@ -796,6 +803,50 @@ def _check_sentiment_std(matched: pd.DataFrame) -> Dict[str, object]:
     }
 
 
+def validate_exchange_calendar(
+    base: pd.DataFrame, calendar_source=None
+) -> List[CheckResult]:
+    """Fail if canonical rows fall on a verified exchange closure."""
+    checks: List[CheckResult] = []
+    if "trading_date" not in base.columns or base.empty:
+        return checks
+    source = calendar_source or load_calendar_source()
+    frame = base[["trading_date"]].copy()
+    frame["day"] = pd.to_datetime(frame["trading_date"]).dt.date
+    statuses = {day: exchange_day_status(day, source) for day in frame["day"].unique()}
+    closure_days = [day for day, status in statuses.items() if status == OFFICIAL_CLOSURE]
+    weekend_days = [day for day, status in statuses.items() if status == WEEKEND]
+    unverified_days = [day for day, status in statuses.items() if status == UNVERIFIED]
+
+    if closure_days:
+        closure_set = set(closure_days)
+        rows = frame[frame["day"].isin(closure_set)]
+        checks.append(CheckResult(
+            "exchange_calendar_integrity", "FAIL",
+            f"{len(rows)} row(s) fall on {len(closure_days)} verified exchange "
+            f"closure date(s): {[str(day) for day in sorted(closure_set)]}",
+            {"closure_dates": [str(day) for day in sorted(closure_set)],
+             "rows": int(len(rows))},
+        ))
+    elif weekend_days:
+        checks.append(CheckResult(
+            "exchange_calendar_integrity", "FAIL",
+            f"Rows found on weekend date(s): {[str(day) for day in sorted(weekend_days)]}",
+        ))
+    elif unverified_days:
+        checks.append(CheckResult(
+            "exchange_calendar_integrity", "WARN",
+            f"{len(unverified_days)} date(s) are outside authoritative calendar "
+            f"coverage: {[str(day) for day in sorted(unverified_days)[:5]]}",
+        ))
+    else:
+        checks.append(CheckResult(
+            "exchange_calendar_integrity", "PASS",
+            f"No rows on official closures; calendar {source.calendar_version}",
+        ))
+    return checks
+
+
 # ---------------------------------------------------------------------------
 # Checkpoint D — Consistency and coverage
 # ---------------------------------------------------------------------------
@@ -1013,6 +1064,8 @@ def run_all_checks(
 
     # Checkpoint B
     for c in validate_price_integrity(base):
+        report.add(c)
+    for c in validate_exchange_calendar(base):
         report.add(c)
 
     # Checkpoint C

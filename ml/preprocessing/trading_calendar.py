@@ -9,6 +9,16 @@ import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
 from ml.preprocessing.dataset_store import resolve_active_dataset_dir
+from ml.preprocessing.idx_calendar import (
+    OFFICIAL_CLOSURE,
+    UNVERIFIED,
+    VERIFIED_OPEN,
+    WEEKEND,
+    CalendarSource,
+    calendar_reference,
+    exchange_day_status,
+    load_calendar_source,
+)
 
 
 logger = get_logger(__name__)
@@ -25,6 +35,12 @@ CALENDAR_COLUMNS = [
     "ticker_count",
     "available_count",
     "coverage_ratio",
+    "coverage_threshold_met",
+    "is_exchange_open",
+    "day_status",
+    "closure_type",
+    "closure_name",
+    "calendar_version",
     "is_trading_day",
 ]
 
@@ -36,27 +52,25 @@ CALENDAR_COLUMNS = [
 def derive_trading_calendar(
     prices_df: pd.DataFrame,
     threshold: float = DEFAULT_THRESHOLD,
+    calendar_source: Optional[CalendarSource] = None,
 ) -> pd.DataFrame:
-    """
-    Derive trading calendar from cross-sectional price availability.
+    """Derive the exchange calendar from the authoritative IDX source.
+
+    Exchange status comes from the versioned official closure map. Cross-
+    sectional coverage only measures missing provider observations on verified
+    open sessions; it is never used as the sole definition of an open exchange.
 
     Args:
         prices_df: DataFrame with 'ticker' and 'trading_date' columns.
-        threshold: Minimum coverage ratio for a date to be trading day.
-            Default 0.9 (90% of universe).
+        threshold: Coverage ratio threshold retained as a descriptive flag.
+        calendar_source: Optional pre-loaded authoritative calendar source.
 
     Returns:
-        DataFrame with columns CALENDAR_COLUMNS, one row per calendar day
-        in the [min, max] range of prices_df. Non-trading days (weekends,
-        holidays, missing data) appear with coverage_ratio=0 (or low) and
-        is_trading_day=False.
-
-    Raises:
-        ValueError: If prices_df is empty or missing required columns.
-        ValueError: If threshold not in (0, 1].
+        DataFrame with CALENDAR_COLUMNS, one row per calendar day in the
+        observed [min, max] range.
     """
     if prices_df.empty:
-        raise ValueError("prices_df is empty — cannot derive calendar.")
+        raise ValueError("prices_df is empty - cannot derive calendar.")
 
     required = {"ticker", "trading_date"}
     missing = required - set(prices_df.columns)
@@ -70,11 +84,11 @@ def derive_trading_calendar(
     if universe_size == 0:
         raise ValueError("prices_df has no tickers.")
 
-    # Normalize to plain dates
+    source = calendar_source or load_calendar_source()
+
     df = prices_df[["ticker", "trading_date"]].copy()
     df["date"] = pd.to_datetime(df["trading_date"]).dt.date
 
-    # Count unique tickers per date
     coverage = (
         df.groupby("date")["ticker"]
         .nunique()
@@ -84,9 +98,15 @@ def derive_trading_calendar(
 
     min_date: date = df["date"].min()
     max_date: date = df["date"].max()
-
     full_range = pd.date_range(min_date, max_date, freq="D").date
     calendar = pd.DataFrame({"date": full_range})
+
+    references = [calendar_reference(day, source) for day in calendar["date"]]
+    calendar["day_status"] = [exchange_day_status(day, source) for day in calendar["date"]]
+    calendar["is_exchange_open"] = calendar["day_status"] == VERIFIED_OPEN
+    calendar["closure_type"] = [item["closure_type"] for item in references]
+    calendar["closure_name"] = [item["closure_name"] for item in references]
+    calendar["calendar_version"] = source.calendar_version
 
     calendar = calendar.merge(coverage, on="date", how="left")
     calendar["available_count"] = (
@@ -96,19 +116,42 @@ def derive_trading_calendar(
     calendar["coverage_ratio"] = (
         calendar["available_count"] / universe_size
     ).astype("float64")
-    calendar["is_trading_day"] = calendar["coverage_ratio"] >= threshold
+    calendar["coverage_threshold_met"] = calendar["coverage_ratio"] >= threshold
+    # A session is usable only when the exchange was verifiably open AND at
+    # least one provider observation exists. Missing observations are visible
+    # via day_status/available_count and must be investigated, not closed.
+    calendar["is_trading_day"] = (
+        calendar["is_exchange_open"] & (calendar["available_count"] > 0)
+    )
 
     calendar = calendar[CALENDAR_COLUMNS].sort_values("date").reset_index(drop=True)
 
+    closure_count = int((calendar["day_status"] == OFFICIAL_CLOSURE).sum())
+    weekend_count = int((calendar["day_status"] == WEEKEND).sum())
+    unverified_count = int((calendar["day_status"] == UNVERIFIED).sum())
+    missing_open = int(
+        (calendar["is_exchange_open"] & (calendar["available_count"] == 0)).sum()
+    )
+
     logger.info(
-        "Derived calendar: %d days total, %d trading, %d non-trading "
-        "(universe=%d, threshold=%.2f)",
+        "Derived calendar: %d days, %d usable sessions, %d closures, "
+        "%d weekends, %d unverified, %d verified-open days with no observations "
+        "(universe=%d, calendar=%s).",
         len(calendar),
         int(calendar["is_trading_day"].sum()),
-        int((~calendar["is_trading_day"]).sum()),
+        closure_count,
+        weekend_count,
+        unverified_count,
+        missing_open,
         universe_size,
-        threshold,
+        source.calendar_version,
     )
+    if unverified_count:
+        logger.warning(
+            "%d date(s) are outside the authoritative calendar coverage and "
+            "were not assumed open.",
+            unverified_count,
+        )
     return calendar
 
 
@@ -142,11 +185,11 @@ def load_calendar(path: Path = DEFAULT_OUTPUT) -> pd.DataFrame:
 
 def get_trading_dates(path: Optional[Path] = None) -> set[date]:
     """
-    Return set of trading dates from saved calendar. Convenience for
-    time_alignment callers needing O(1) lookup.
+    Return set of usable trading dates from saved calendar.
 
-    When ``path`` is omitted, the active published generation is used if one
-    exists; otherwise this falls back to the legacy flat dataset directory.
+    A usable date is a verified-open exchange session with at least one price
+    observation. Official closures and verified-open days with missing
+    observations are excluded.
     """
     if path is None:
         path = resolve_active_dataset_dir(_PROJECT_ROOT / "ml" / "data") / "trading_calendar.parquet"
@@ -160,33 +203,41 @@ def get_trading_dates(path: Optional[Path] = None) -> set[date]:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Derive trading calendar from price availability (TASK 103)."
+        description="Derive calendar from the authoritative IDX source (TASK 103)."
     )
     parser.add_argument("--input", type=Path, default=DEFAULT_INPUT)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument("--calendar-source", type=Path, default=None)
     args = parser.parse_args(argv)
 
     setup_logging()
 
+    source = load_calendar_source(args.calendar_source) if args.calendar_source else None
     prices = load_prices(args.input)
-    logger.info("Loaded prices: %d rows, %d tickers",
-                len(prices), prices["ticker"].nunique())
+    logger.info(
+        "Loaded prices: %d rows, %d tickers",
+        len(prices), prices["ticker"].nunique(),
+    )
 
-    calendar = derive_trading_calendar(prices, threshold=args.threshold)
+    calendar = derive_trading_calendar(
+        prices, threshold=args.threshold, calendar_source=source
+    )
     save_calendar(calendar, args.output)
 
-    # Summary
     trading = int(calendar["is_trading_day"].sum())
     nontrading = len(calendar) - trading
     print(f"\nCalendar summary")
-    print(f"  Range:          {calendar['date'].min()} -> {calendar['date'].max()}")
-    print(f"  Total days:     {len(calendar)}")
-    print(f"  Trading days:   {trading}")
-    print(f"  Non-trading:    {nontrading}")
-    print(f"  Universe size:  {calendar['ticker_count'].iloc[0]}")
-    print(f"  Threshold:      {args.threshold}")
-    print(f"  Output:         {args.output}")
+    print(f"  Calendar version: {calendar['calendar_version'].iloc[0]}")
+    print(f"  Range:            {calendar['date'].min()} -> {calendar['date'].max()}")
+    print(f"  Total days:       {len(calendar)}")
+    print(f"  Usable sessions:  {trading}")
+    print(f"  Non-trading:      {nontrading}")
+    print(f"  Official closes:  {int((calendar['day_status'] == OFFICIAL_CLOSURE).sum())}")
+    print(f"  Unverified:       {int((calendar['day_status'] == UNVERIFIED).sum())}")
+    print(f"  Universe size:    {calendar['ticker_count'].iloc[0]}")
+    print(f"  Coverage flag:    {args.threshold}")
+    print(f"  Output:           {args.output}")
     return 0
 
 

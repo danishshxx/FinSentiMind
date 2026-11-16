@@ -29,6 +29,7 @@ import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
 from ml.preprocessing.dataset_store import write_json_atomic
+from ml.preprocessing.idx_calendar import load_calendar_source
 from ml.preprocessing.quality_gate import MissingDateGroup, check_missing_weekdays
 
 
@@ -49,52 +50,16 @@ MIXED_HOLIDAY_WINDOW = "MIXED_HOLIDAY_WINDOW"
 PARTIAL_OBSERVATION = "PARTIAL_OBSERVATION"
 UNEXPLAINED = "UNEXPLAINED"
 
-# Curated IDX/government closure map for the audited period. A date absent
-# from this map is not automatically treated as a holiday.
+# Derived from the versioned authoritative IDX calendar source.
+_SOURCE = load_calendar_source()
+_TYPE_MAP = {
+    "official_holiday": OFFICIAL_HOLIDAY,
+    "collective_leave": COLLECTIVE_LEAVE,
+    "exchange_closure": EXCHANGE_CLOSURE,
+}
 CLOSURE_MAP: Dict[date, Tuple[str, str]] = {
-    date(2024, 11, 27): (OFFICIAL_HOLIDAY, "Pilkada regional election"),
-    date(2024, 12, 25): (OFFICIAL_HOLIDAY, "Christmas Day"),
-    date(2024, 12, 26): (COLLECTIVE_LEAVE, "Christmas collective leave"),
-    date(2024, 12, 31): (EXCHANGE_CLOSURE, "Year-end exchange closure"),
-    date(2025, 1, 1): (OFFICIAL_HOLIDAY, "New Year's Day"),
-    date(2025, 1, 27): (OFFICIAL_HOLIDAY, "Isra Mi'raj"),
-    date(2025, 1, 28): (OFFICIAL_HOLIDAY, "Chinese New Year"),
-    date(2025, 1, 29): (COLLECTIVE_LEAVE, "Chinese New Year collective leave"),
-    date(2025, 3, 28): (COLLECTIVE_LEAVE, "Nyepi collective leave"),
-    date(2025, 3, 31): (OFFICIAL_HOLIDAY, "Idul Fitri"),
-    date(2025, 4, 1): (OFFICIAL_HOLIDAY, "Idul Fitri"),
-    date(2025, 4, 2): (COLLECTIVE_LEAVE, "Idul Fitri collective leave"),
-    date(2025, 4, 3): (COLLECTIVE_LEAVE, "Idul Fitri collective leave"),
-    date(2025, 4, 4): (COLLECTIVE_LEAVE, "Idul Fitri collective leave"),
-    date(2025, 4, 7): (COLLECTIVE_LEAVE, "Idul Fitri collective leave"),
-    date(2025, 4, 18): (OFFICIAL_HOLIDAY, "Good Friday"),
-    date(2025, 5, 1): (OFFICIAL_HOLIDAY, "International Labour Day"),
-    date(2025, 5, 12): (OFFICIAL_HOLIDAY, "Waisak"),
-    date(2025, 5, 13): (COLLECTIVE_LEAVE, "Waisak collective leave"),
-    date(2025, 5, 29): (OFFICIAL_HOLIDAY, "Ascension Day"),
-    date(2025, 5, 30): (COLLECTIVE_LEAVE, "Ascension collective leave"),
-    date(2025, 6, 6): (OFFICIAL_HOLIDAY, "Idul Adha"),
-    date(2025, 6, 9): (COLLECTIVE_LEAVE, "Idul Adha collective leave"),
-    date(2025, 6, 27): (OFFICIAL_HOLIDAY, "Islamic New Year"),
-    date(2025, 8, 18): (OFFICIAL_HOLIDAY, "Independence Day observed"),
-    date(2025, 9, 5): (OFFICIAL_HOLIDAY, "Maulid Nabi"),
-    date(2025, 12, 25): (OFFICIAL_HOLIDAY, "Christmas Day"),
-    date(2025, 12, 26): (COLLECTIVE_LEAVE, "Christmas collective leave"),
-    date(2025, 12, 31): (EXCHANGE_CLOSURE, "Year-end exchange closure"),
-    date(2026, 1, 1): (OFFICIAL_HOLIDAY, "New Year's Day"),
-    date(2026, 1, 16): (OFFICIAL_HOLIDAY, "Isra Mi'raj"),
-    date(2026, 2, 16): (COLLECTIVE_LEAVE, "Chinese New Year collective leave"),
-    date(2026, 2, 17): (OFFICIAL_HOLIDAY, "Chinese New Year"),
-    date(2026, 3, 18): (COLLECTIVE_LEAVE, "Idul Fitri holiday window"),
-    date(2026, 3, 19): (COLLECTIVE_LEAVE, "Idul Fitri holiday window"),
-    date(2026, 3, 20): (OFFICIAL_HOLIDAY, "Idul Fitri"),
-    date(2026, 3, 23): (COLLECTIVE_LEAVE, "Idul Fitri holiday window"),
-    date(2026, 3, 24): (COLLECTIVE_LEAVE, "Idul Fitri holiday window"),
-    date(2026, 4, 3): (OFFICIAL_HOLIDAY, "Good Friday"),
-    date(2026, 5, 1): (OFFICIAL_HOLIDAY, "International Labour Day"),
-    date(2026, 6, 1): (OFFICIAL_HOLIDAY, "Pancasila Day"),
-    date(2026, 6, 16): (OFFICIAL_HOLIDAY, "Islamic New Year"),
-    date(2026, 8, 17): (OFFICIAL_HOLIDAY, "Independence Day"),
+    day: (_TYPE_MAP[closure.closure_type], closure.name)
+    for day, closure in _SOURCE.closures.items()
 }
 
 

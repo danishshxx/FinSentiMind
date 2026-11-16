@@ -11,6 +11,7 @@ import pandas as pd
 
 from app.core.logging import get_logger, setup_logging
 from ml.preprocessing.dataset_store import resolve_active_dataset_dir
+from ml.preprocessing.idx_calendar import VERIFIED_OPEN, CalendarSource, exchange_day_status, load_calendar_source
 
 
 logger = get_logger(__name__)
@@ -243,13 +244,18 @@ def check_return_anomalies(
     return findings
 
 
-def check_missing_weekdays(df: pd.DataFrame) -> List[MissingDateGroup]:
+def check_missing_weekdays(
+    df: pd.DataFrame,
+    calendar_source: Optional[CalendarSource] = None,
+) -> List[MissingDateGroup]:
     """
-    Detect contiguous weekday gaps per ticker.
+    Detect missing provider observations on verified open exchange sessions.
 
-    Weekends excluded (expected non-trading). Gaps grouped into single
-    findings to avoid noise from consecutive holidays.
+    Official closures and unverified dates are not counted as missing sessions.
+    Weekends are excluded. Gaps are grouped into contiguous runs of verified
+    open sessions to avoid noise.
     """
+    source = calendar_source or load_calendar_source()
     results: List[MissingDateGroup] = []
 
     for ticker, group in df.groupby("ticker"):
@@ -257,30 +263,23 @@ def check_missing_weekdays(df: pd.DataFrame) -> List[MissingDateGroup]:
         if len(dates) < 2:
             continue
 
-        # Walk forward; collect contiguous gaps of weekdays only
-        gap_start: Optional[date] = None
-        gap_end: Optional[date] = None
-
         for prev, curr in zip(dates, dates[1:]):
-            delta = (curr - prev).days
-            if delta <= 1:
-                continue  # consecutive (or same day — impossible here)
-
-            # Days strictly between prev and curr
-            cursor = prev + timedelta(days=1)
-            missing_weekdays: List[date] = []
-            while cursor < curr:
-                if cursor.weekday() < 5:  # Mon-Fri
-                    missing_weekdays.append(cursor)
-                cursor += timedelta(days=1)
-
-            if not missing_weekdays:
+            if (curr - prev).days <= 1:
                 continue
 
-            # Group contiguous missing weekdays
-            local_start = missing_weekdays[0]
-            local_end = missing_weekdays[0]
-            for d in missing_weekdays[1:]:
+            cursor = prev + timedelta(days=1)
+            missing_sessions: List[date] = []
+            while cursor < curr:
+                if exchange_day_status(cursor, source) == VERIFIED_OPEN:
+                    missing_sessions.append(cursor)
+                cursor += timedelta(days=1)
+
+            if not missing_sessions:
+                continue
+
+            local_start = missing_sessions[0]
+            local_end = missing_sessions[0]
+            for d in missing_sessions[1:]:
                 if (d - local_end).days == 1:
                     local_end = d
                 else:
@@ -292,7 +291,6 @@ def check_missing_weekdays(df: pd.DataFrame) -> List[MissingDateGroup]:
                     ))
                     local_start = d
                     local_end = d
-
             results.append(MissingDateGroup(
                 ticker=ticker,
                 start=local_start,

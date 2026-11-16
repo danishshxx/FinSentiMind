@@ -258,9 +258,23 @@ def stage_price_ingestion(ctx: RefreshContext) -> None:
 
 def stage_price_cleaning(ctx: RefreshContext) -> None:
     output = ctx.staging_dir / "prices_clean.parquet"
-    prices = load_prices_clean(save=True, output_path=output)
+    quarantine_path = (
+        ctx.config.reports_dir / f"exchange_closure_quarantine_{ctx.run_id}.json"
+    )
+    prices = load_prices_clean(
+        save=True, output_path=output, quarantine_report_path=quarantine_path
+    )
     if prices.empty:
         raise StageFailure("Cleaned price dataset is empty.")
+    excluded = int(prices.attrs.get("closure_excluded_rows", 0))
+    ctx.metrics["exchange_closure_quarantine"] = {
+        "rows_excluded": excluded,
+        "calendar_version": prices.attrs.get("calendar_version"),
+    }
+    if excluded and quarantine_path.exists():
+        ctx.report_paths["exchange_closure_quarantine"] = (
+            _report_rel(quarantine_path) or str(quarantine_path)
+        )
     ctx.artifacts["prices_clean"] = output
     ctx.metrics["price_rows"] = int(len(prices))
 
