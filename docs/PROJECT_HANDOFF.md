@@ -117,3 +117,51 @@ Owner review of TASK 121 acceptance evidence, followed by a controlled full
 refresh/publication only after explicit approval and verified data coverage.
 Do not start public deployment or live trading without separate legal,
 licensing, security, and operational approval.
+
+---
+
+# Data Platform Completion (supersedes verification counts above)
+
+Branch: `feat/data-platform-completion` (based on P0 commit `e7bc1f9`).
+
+## Active generation
+
+- Generation: `idx30_calendar_v2_20261116`
+- Calendar: `IDX-2024-2026-v2`
+- Scope: IDX30 (30 tickers)
+- Range: 2024-10-07 → 2026-11-13, 15,018 rows, 502 sessions
+- `active.json` is present with SHA-256 checksums; readers verify hashes.
+- Data Health: PASS 37 / WARN 1 (sparse sentiment) / FAIL 0.
+
+## New modules
+
+- `ml/validation/generation_audit.py` — generation acceptance and provenance.
+- `ml/ops/publish_dataset.py` — staging + safe atomic publication wrapper.
+- `ml/ops/revalidate_downstream.py` — quant/market/subsystem revalidation.
+- `ml/universe/` — inventory, yfinance EOD ingestion, coverage matrix, refresh.
+
+## Downstream status
+
+- Quant features: MATCH against recomputation.
+- Market intelligence: OK (equal-weight proxy, not IHSG).
+- Fundamentals, capital flow, macro, portfolio: UNAVAILABLE (manual/absent).
+- ML research: NOT_VALIDATED (ROC-AUC 0.5543, strategy Sharpe -1.4099).
+
+## Universe expansion
+
+- Documented inventory: 45 tickers (IDX30 + LQ45).
+- Official all-IDX list: **blocked (HTTP 403)**; inventory completeness `false`.
+- yfinance EOD: 45/45 returned, 22,593 rows through 2026-11-16.
+- Incremental re-run: 0 new rows (idempotent).
+- Broader universe is **not published as a generation**.
+
+## Verification
+
+- Full suite: **544 passed**, 5 pre-existing Pydantic warnings.
+- `node --check frontend/app.js`: pass.
+- `git diff --check`: pass.
+- No Supabase writes, no external publication, no `main` merge.
+
+See `docs/DATA_PLATFORM_ARCHITECTURE.md`, `docs/DATA_PROVIDER_MATRIX.md`,
+`docs/DATA_QUALITY_POLICY.md`, `docs/DATA_REFRESH_RUNBOOK.md` and
+`docs/DATA_PLATFORM_ACCEPTANCE.md`.

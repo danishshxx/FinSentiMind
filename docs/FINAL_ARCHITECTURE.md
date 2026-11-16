@@ -277,3 +277,44 @@ Formula lengkap ada di `docs/FINANCIAL_MODELS_CATALOG.md`, meliputi:
   PASS 36 / WARN 1 / FAIL 0, no publication.
 - Security scan: no `.env`, credentials, or Parquet staged.
 - Screenshots: `docs/screenshots/final-product-acceptance/`.
+
+## 14. Penyelesaian Platform Data (2026-11-16)
+
+Bagian ini memperbarui arsitektur data setelah remediasi kalender P0.
+
+### Generasi aktif
+
+- `active.json` menunjuk ke `generations/idx30_calendar_v2_20261116`.
+- Kalender: `IDX-2024-2026-v2`; scope: IDX30 (30 ticker).
+- Rentang: 2024-10-07 → 2026-11-13; 15.018 baris; 502 sesi.
+- Checksum SHA-256 per artefak diverifikasi oleh reader.
+- Data Health: PASS 37 / WARN 1 / FAIL 0.
+
+### Lapisan baru
+
+- `ml/validation/generation_audit.py`: audit penerimaan generasi dan provenance.
+- `ml/ops/publish_dataset.py`: staging + publikasi atomik lewat `dataset_store`.
+- `ml/ops/revalidate_downstream.py`: rekonsiliasi quant, market, dan subsistem.
+- `ml/universe/`: inventaris instrumen, ingestion EOD yfinance inkremental,
+  matriks cakupan, dan orkestrasi refresh universe.
+
+### Status hilir
+
+- Quant features: MATCH dengan hasil hitung ulang.
+- Market intelligence: OK (indeks ekuivalen-berbobot, bukan IHSG).
+- Fundamental, capital flow, macro, portfolio: UNAVAILABLE (manual/belum ada).
+- ML research: NOT_VALIDATED (ROC-AUC 0.5543; Sharpe strategi -1.4099).
+
+### Ekspansi universe
+
+- Inventaris terdokumentasi: 45 ticker (IDX30 + LQ45).
+- Daftar resmi seluruh IDX: **terblokir HTTP 403**; `complete=false`.
+- yfinance EOD: 45/45 berhasil, 22.593 baris s.d. 2026-11-16.
+- Re-run inkremental: 0 baris baru (idempotent).
+- Universe lebih luas **belum dipublikasikan** sebagai generasi.
+
+### Verifikasi
+
+- Full test suite: **544 passed**, 5 warning Pydantic lama.
+- `node --check frontend/app.js`: pass.
+- Tidak ada write Supabase, publikasi eksternal, atau merge ke `main`.

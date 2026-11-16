@@ -72,3 +72,23 @@ IDX official index constituents — https://www.idx.co.id/en/market-data/indices
   points to the active universe.
 - Tickers with weak/unstable aliases (e.g., BUMI) should be flagged during
   news-matching quality review (Phase 3).
+
+## Data-platform expansion (2026-11-16)
+
+The data platform now maintains an auditable inventory and coverage matrix in
+`ml/universe/`:
+
+- Documented scope: **IDXL45_DOCUMENTED** (IDX30 + 15 LQ45 names = 45 tickers).
+- Official all-IDX securities endpoint: **HTTP 403**; the inventory records
+  `complete: false` and never claims full exchange coverage.
+- yfinance EOD ingestion returned 45/45 tickers and 22,593 rows through
+  2026-11-16. Coverage is measured per instrument from its first available date.
+- The active dataset generation remains scoped to **IDX30**. A broader universe
+  is available as local staging, not as a published generation.
+
+Commands:
+
+```bat
+venv\Scripts\python -m ml.universe.inventory --output ml\data\universe\instrument_inventory.json
+venv\Scripts\python -m ml.universe.refresh --end 2026-11-16
+```
